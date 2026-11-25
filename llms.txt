@@ -1,0 +1,30 @@
+# Lecta
+
+> Lecta (课读) is a local, open-source study app for lecture slides. Import a .pptx or .pdf; each slide gets a study note; every word on the slide can be looked up; quizzes link back to their slides; saved words go into a spaced-repetition word book. Everything is organised by course and runs on the user's own computer (Python 3.10+, `python -m kejian`). Study language: Chinese (`zh`) or English (`en`).
+
+An AI assistant can do all the "AI" work itself, with no API key: it reads the slides and writes notes, quiz questions and word lists as JSON, then saves them with `python -m kejian save …`. A user with only a web chatbot (ChatGPT, Claude, Kimi…) uses the app's copy-prompt / paste-reply wizards instead.
+
+## Start here
+
+- [AGENTS.md](https://github.com/chenjinxian1/Lecta/blob/main/AGENTS.md): playbook for AI assistants covering setup, building a course, writing notes, making quizzes and building word lists, with exact commands
+- [README.md](https://github.com/chenjinxian1/Lecta/blob/main/README.md): what Lecta does, install, screenshots
+- [AI_GUIDE.md](https://github.com/chenjinxian1/Lecta/blob/main/AI_GUIDE.md): library layout and every JSON format (Chinese)
+
+## Setup in short
+
+- `git clone https://github.com/chenjinxian1/Lecta.git && cd Lecta`
+- `pip install -r requirements.txt`
+- `python -m kejian doctor`
+- `python -m kejian` opens http://127.0.0.1:8770 (Windows: double-click `启动.bat`)
+
+## Main commands
+
+- `python -m kejian course add NAME --code CODE`, `python -m kejian import FILE --course ID`, `python -m kejian list`
+- `python -m kejian prompt notes|quiz|words DECK-ID… [--pages] [--count] [--focus]` prints the brief, slide text and output format
+- `python -m kejian save notes|quiz|words DECK-ID… --file REPLY.json` validates and saves the reply, linking it to the course, deck pages and word book
+- `python -m kejian vocab collect|add|where|list`
+- `python -m kejian export DECK-ID|QUIZ-ID|vocab`, `python -m kejian manifest` print the user's material and study history for analysis
+
+## Optional
+
+- [Source code](https://github.com/chenjinxian1/Lecta/tree/main/kejian): Python standard library + PyMuPDF; frontend is plain JavaScript in kejian/web/

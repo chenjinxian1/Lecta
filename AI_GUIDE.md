@@ -90,8 +90,47 @@ python -m kejian import 第3讲.pptx --title "Lecture 3 · Supply and Demand" --
 ```
 
 - 支持 .pptx / .ppt / .pdf。PPT 转 PDF 需要本机有 PowerPoint 或 LibreOffice；不行就先另存为 PDF 再导入。
-- 导入后得到课件 ID（打印在最后一行）。之后可以让网页里的 AI 讲解功能，或 `python -m kejian generate <课件ID>` 写每页讲解。
+- 导入后得到课件 ID（打印在最后一行）。每页讲解可以由你自己写（见下面 4.1），也可以让用户在网页里点“AI 讲解”。
 - 已有课件换课程：`python -m kejian course assign <课程ID> <课件ID> …`（课程 ID 写 `none` 表示移出）。
+
+### 4.1 你自己当 AI：写讲解、出题、挑生词
+
+用户不需要 API Key。三件事都是同一个流程：`prompt` 拿到提示词 → 你按里面的格式写 JSON → `save` 存进课件库。
+
+```bash
+# 讲解：每次 8 页左右；--pages missing 是还没有讲解的页
+python -m kejian prompt notes <课件ID> --pages 1-8 --out 临时-提示词.md
+python -m kejian save   notes <课件ID> --file 临时-讲解.json            # --keep：已有讲解的页不覆盖
+
+# 出题：可以一次给几份课件；题目的 chapter / page 会自动对应到课件页，题库自动放进同一门课
+python -m kejian prompt quiz <课件ID> [<课件ID> …] --count 15 --focus "容易混淆的概念" --out 临时-提示词.md
+python -m kejian save   quiz <课件ID> [<课件ID> …] --file 临时-题库.json   # 可加 --course / --title
+
+# 生词：带中英释义、页码、原句，进单词本
+python -m kejian prompt words <课件ID> --count 25 --out 临时-提示词.md
+python -m kejian save   words <课件ID> --file 临时-生词.json
+```
+
+- 能看图的话，对照 `library/<课件ID>/pages/NNN.jpg` 写讲解，图表页更准。
+- 写完删掉临时文件。
+
+### 4.2 单词本命令
+
+```bash
+python -m kejian vocab collect <课件ID|题库ID>      # 不用 AI：把讲解卡片 / 题目里的关键术语收进单词本
+python -m kejian vocab add "opportunity cost" --m "机会成本" --d "n. …" --deck <课件ID> --page 5 --ctx "原句"
+python -m kejian vocab where "elasticity" --course econ101   # 这个词出现在哪些课件页、哪些题
+python -m kejian vocab list --course econ101 --due           # 到期该复习的词
+```
+
+网页会自动把单词本里的词在课件上加下划线，并在单词本里列出它“也出现在”同一门课的哪些页、哪些题。
+
+### 4.3 其它
+
+```bash
+python -m kejian doctor               # 检查环境：Python、PyMuPDF、PPT 转 PDF、Claude Code、课件库
+python -m kejian config               # 查看设置；python -m kejian config language en 切换学习语言
+```
 
 ## 5. 加入题库（推荐：AI 直接写 JSON）
 
@@ -160,3 +199,5 @@ python -m kejian quiz 题库.json --course econ101             # 导入
   - `PUT /api/decks/<id>/marks/<页码>` `{"star", "note", "hl"}`
   - `POST /api/quizzes/import`：请求体是 `.json` / `.pptx` 文件本身，请求头 `X-Filename: 文件名`、`X-Course: 课程ID`
   - `GET /api/vocab`、`POST /api/vocab/<单词>/review` `{"grade": "again|hard|good|easy"}`
+  - `POST /api/studio/<quiz|words>/<prompt|save|run>` `{"decks": [...], "count", "focus", "pages", "text"}`：出题 / 挑生词的提示词、保存回复、（Claude Code / API 模式下）自动生成
+  - `POST /api/vocab/collect` `{"deck": id}` 或 `{"quiz": id}`；`GET /api/vocab/where?course=`；`GET /api/decks/<id>/vocab`

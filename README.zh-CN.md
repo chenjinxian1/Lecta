@@ -26,6 +26,7 @@
 - [功能](#功能)
 - [截图](#截图)
 - [快速开始](#快速开始)
+- [一门课，全部连在一起](#一门课全部连在一起)
 - [讲解怎么生成](#讲解怎么生成)
 - [学习语言](#学习语言)
 - [单词本与背单词](#单词本与背单词)
@@ -44,14 +45,15 @@
 |---|---|
 | 📥 **导入课件** | 拖入 `.pptx` / `.ppt` / `.pdf` 即可。自动生成高清页面和缩略图，并记下每个单词的精确位置和演讲者备注。 |
 | ✨ **逐页 AI 讲解** | 每页一张讲解卡片：一句话核心、要点、关键术语、考点提示。可以逐页、按范围或整份生成，也能重新生成或手动编辑。 |
-| 🔑 **不用 API Key** | 用你已有的 ChatGPT / Claude / Kimi / DeepSeek 网页版账号：程序把课件整理成提示词，复制过去，再把回复粘贴回来，就自动拆成每页讲解。装了 [Claude Code](https://claude.com/claude-code) 的话，可以用 Claude 订阅全自动生成。也支持 API Key（Claude、OpenAI 以及所有 OpenAI 兼容接口，包括 Ollama）。 |
+| 🔑 **用你已有的 AI** | 不需要 API Key。可以用网页版 ChatGPT / Claude / Kimi（程序写好提示词，你把回复粘贴回来），也可以让 Claude Code、Codex 这类 AI 助手直接在项目文件夹里把活干完。 |
+| 🔗 **全部连在一起** | AI 讲解、题库、生词都挂在同一门课下。每道题都能跳回出自的那一页；单词本里的词会在课件上标出下划线，每个词还会列出同一门课里所有用到它的课件页和题目。 |
 | 👆 **点词就查** | 在课件上单击一个词或划选一个短语，弹出释义、英式音标和英式真人发音。课件里定义过的术语，优先显示“本课释义”。透明文字层按单词逐个对齐，选区和原文严丝合缝。 |
 | 🖍️ **标注** | 标 ★ 重点页、写页面笔记（自动保存）、四色高亮原文并加批注；缩略图上能看到哪些页有标注。 |
 | 📝 **题库** | 选择题练习，带解析、关键术语和“跳回课件原页”。可以按“错题”“曾错”“未做”筛选，按章节看正确率。 |
 | 📚 **单词本** | 收藏时自动记下出处（哪一页课件 / 哪道题）和原句。可以搜索、按课程或熟练度筛选、编辑、导出 CSV。 |
 | 🔁 **背单词** | 闪卡复习（空格翻面，1–4 打分）。忘了的 10 分钟后再见，记住的间隔 1 → 2 → 4 → 7 → 15 → 30 → 60 天。 |
 | 🌏 **中文 / English** | 每个词同时存中文释义和英文释义，切换语言不用重查。 |
-| 🤖 **AI 读得懂** | 课件库是普通 JSON 文件，[`AI_GUIDE.md`](AI_GUIDE.md) 写清了结构，AI 助手可以直接读你的课程、讲解、错题和生词，也能把新题库放进对应课程。 |
+| 🤖 **AI 助手能直接用** | [`AGENTS.md`](AGENTS.md) 教会 Claude Code、Codex 等 AI 助手：安装启动、导入课件、写讲解、出题、整理单词本、找出你的薄弱点。 |
 | 🌙 **阅读体验** | 方向键翻页、缩略图导航、可拖动分栏、深色模式、记住阅读进度。 |
 
 ## 截图
@@ -74,6 +76,22 @@ git clone https://github.com/chenjinxian1/Lecta.git
 cd Lecta
 ```
 
+### 方式一：让 AI 帮你装好
+
+如果你用 [Claude Code](https://claude.com/claude-code)、Codex 或其它能运行命令的 AI 助手，在一个空文件夹里打开它，粘贴：
+
+```text
+克隆 https://github.com/chenjinxian1/Lecta.git，先读它的 AGENTS.md，然后帮我装好并启动 Lecta。
+我的学习语言是中文。新建一门课“微观经济学”（ECON101），把 <你的课件文件夹> 里的课件都导入进去。
+然后为每一页写讲解，出 15 道选择题，再帮我整理这门课的生词。
+```
+
+AI 助手会自己装好依赖、导入课件，并亲自完成讲解、出题和生词，不需要 API Key。它说好了之后，打开 <http://127.0.0.1:8770> 即可。
+
+只有网页版 ChatGPT / Claude？对它说：*“读一下 https://github.com/chenjinxian1/Lecta/blob/main/llms.txt ，一步步教我在电脑上装好 Lecta。”*
+
+### 方式二：自己安装
+
 **Windows**：双击 `启动.bat`。第一次会自动安装依赖，然后浏览器打开 <http://127.0.0.1:8770>。
 
 **macOS / Linux**：运行 `./start.sh`，或者手动：
@@ -95,6 +113,29 @@ PDF 可以直接导入。`.ppt` / `.pptx` 要先转成 PDF，程序会自动调�
 - **其它系统**：[LibreOffice](https://www.libreoffice.org/)
 
 两者都没有的话，在 PowerPoint / Keynote 里“导出为 PDF”再导入即可（PDF 不带演讲者备注）。
+
+## 一门课，全部连在一起
+
+```
+ 课件 ──► 每页 AI 讲解 ──► 关键术语 ─────────────────┐
+   │                                                  ▼
+   └──► AI 出题（每道题能跳回原页） ──► 单词本 ──► 间隔复习
+                                                      │
+          单词本里的词会在课件上标出下划线 ◄──────────┘
+```
+
+| 环节 | 在哪里 | 怎么连起来 |
+|---|---|---|
+| **讲解** | 阅读页 → **AI 讲解** | 每页一张卡片，带关键术语 |
+| **出题** | 课程标题栏 → **AI 出题**，或课件“⋯”菜单 → **AI 出题** | 可以从一份或几份课件出题；每道题记着章节和页码，点“看课件”直接跳回原页 |
+| **生词** | 课件“⋯”菜单，或阅读页 **生词** 栏 → **AI 挑生词** / **收集讲解里的术语** | 术语和难词，带中文释义、英文释义、页码和原句 |
+| **复习** | 单词本 → **复习** | 每张卡片都有出处；单词本还会列出这个词在同一门课里出现的其它页和题 |
+
+每一步 AI 工作都有三种做法，有哪个用哪个：
+
+- **网页版 AI**（ChatGPT、Claude、Kimi…）：向导帮你复制提示词，你把回复粘贴回来。
+- **在项目文件夹里的 AI 助手**（Claude Code、Codex…）：它运行 `python -m kejian prompt …` 拿到提示词，自己写好 JSON，再用 `python -m kejian save …` 存进来。详见 [AGENTS.md](AGENTS.md)。
+- **一键生成**：AI 设置里选了 **Claude Code** 的话，这些向导里会多一个“自动生成”按钮，用的是你的 Claude 订阅。
 
 ## 讲解怎么生成
 
@@ -119,18 +160,9 @@ PDF 可以直接导入。`.ppt` / `.pptx` 要先转成 PDF，程序会自动调�
 
 先在终端运行一次 `claude`，用你的 Claude 账号登录。然后在 AI 设置里选 **Claude Code**，点“测试连接”。之后点 **AI 讲解** 就会在后台批量生成（同时 2 页）。程序只调用你本机的 `claude -p`，只开放只读的 Read 工具来看幻灯片图片，不会读取或保存你的登录凭据。
 
-### API Key
+### API Key（可选）
 
-| 服务商 | 默认模型 | 说明 |
-|---|---|---|
-| Claude (Anthropic) | `claude-opus-5-5` | 官方 SDK，结构化 JSON 输出；课件目录作为缓存前缀，批量生成更省钱 |
-| OpenAI | `gpt-5` | |
-| DeepSeek / 通义千问 / Kimi | 预填 | 选中后自动填好 Base URL |
-| Ollama | `qwen2.5:14b` | 完全本地运行 |
-| 离线提纲 | — | 不调用 AI，把页面文字整理成提纲 |
-
-- API Key 只保存在本机的 `config.local.json`（已加入 `.gitignore`）。也可以用环境变量 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`。
-- “把幻灯片图片一起发给模型”默认开启，图表、流程图页讲得更准；模型不支持看图时自动退回纯文字。
+大多数人用不到。如果你有 Key，也支持 Claude（Anthropic SDK）、OpenAI，以及 DeepSeek、通义千问、Kimi、本地 Ollama 等 OpenAI 兼容接口。Key 只保存在本机的 `config.local.json`（已加入 `.gitignore`）。
 
 ## 学习语言
 
@@ -154,10 +186,11 @@ PDF 可以直接导入。`.ppt` / `.pptx` 要先转成 PDF，程序会自动调�
 
 ## 题库
 
-题库挂在课程下，有两种导入方式：
+题库挂在课程下，有三种来源：
 
+- **AI 出题**：选一份或几份课件、题数，可以写个侧重点（“计算题”“容易混淆的概念”）。用网页版向导、AI 助手，或者 Claude Code 一键生成（见[一门课，全部连在一起](#一门课全部连在一起)）。
 - **从 PPT**：一页一道题，演讲者备注里写 `Answer: B`。
-- **从 JSON**：格式见 [`AI_GUIDE.md`](AI_GUIDE.md)。可以让任意 AI 按这个格式根据你的课件出题，再导入：
+- **从 JSON**：格式见 [`AI_GUIDE.md`](AI_GUIDE.md)。
 
 ```bash
 python -m kejian quiz 题库.json --course econ101 --check   # 只校验
@@ -168,19 +201,24 @@ python -m kejian quiz 题库.json --course econ101
 
 ## 给 AI 助手用
 
-课件库是普通 JSON 文件，[`AI_GUIDE.md`](AI_GUIDE.md) 写清了每个文件。用 Claude Code、Codex 等 AI 助手打开这个文件夹，就可以直接说：
+用 Claude Code、Codex 等 AI 助手打开这个文件夹。它会读 [`AGENTS.md`](AGENTS.md)（Claude Code 通过 `CLAUDE.md` 自动读取），然后整套流程都能自己完成，不需要 API Key：
 
-- “根据第 3 讲出 10 道选择题，放进 ECON101。”
-- “我老是错哪些题？把背后的概念讲一遍。”
-- “把我标了重点和高亮的内容整理成复习提纲。”
+- “帮我装好 Lecta，把 Downloads/ECON101 文件夹里的课件都导入到一门新课里。”
+- “给第 4 讲写讲解，再从第 3–5 讲出 20 道选择题。”
+- “从第 5 讲挑出我该背的词，加进单词本。”
+- “我老是错哪些题？把背后的概念讲一遍，再针对这些出几道题考我。”
 
-常用命令：
+它用到的命令：
 
 ```bash
-python -m kejian manifest          # 整个课件库（JSON）：课程、课件、题库、进度
-python -m kejian export <课件ID>    # 单份课件（Markdown）：原文、讲解、我的标注
-python -m kejian export vocab      # 单词本（Markdown）
+python -m kejian prompt notes|quiz|words <课件ID>…   # 写作要求 + 课件原文 + JSON 格式
+python -m kejian save   notes|quiz|words <课件ID>… --file 回复.json
+python -m kejian vocab  collect|add|where|list
+python -m kejian export <课件ID|题库ID|vocab>        # 原文、讲解、标注、作答、生词记录
+python -m kejian manifest                            # 整个课件库（JSON）
 ```
+
+[`llms.txt`](llms.txt) 是给网页版 AI 读仓库用的简介；[`AI_GUIDE.md`](AI_GUIDE.md) 写清了每种文件格式。
 
 用网页版 AI？首页的 **给 AI 用** 按钮可以复制课件库总览或单词本；单份课件、题库在“⋯”菜单里点 **复制给 AI**。
 
@@ -196,8 +234,14 @@ python -m kejian course assign econ101 <课件或题库ID>
 python -m kejian generate <课件ID> --pages 1-10         # 只生成缺讲解的页
 python -m kejian generate <课件ID> --pages all --overwrite
 python -m kejian quiz 题库.json --course econ101
+python -m kejian prompt quiz <课件ID>… --count 15      # 给任意 AI 的提示词；还有 notes、words
+python -m kejian save quiz <课件ID>… --file 回复.json
+python -m kejian vocab collect <课件ID|题库ID>          # 关键术语 → 单词本，不用 AI
+python -m kejian vocab where "elasticity" --course econ101
 python -m kejian export <课件ID|题库ID|vocab> --out notes.md
 python -m kejian manifest
+python -m kejian config language zh                     # 学习语言：zh 或 en
+python -m kejian doctor                                 # 检查 Python、依赖、PPT 转换
 python -m kejian check                                  # 自检课件库
 ```
 
@@ -226,7 +270,8 @@ library/
 ```
 kejian/
   importer.py    PPTX/PDF → 页面图 + 单词坐标 + 备注（PowerPoint / LibreOffice + PyMuPDF）
-  ai.py          讲解生成：Claude API / OpenAI 兼容 / Claude Code / 离线提纲
+  ai.py          讲解生成：Claude Code / Claude API / OpenAI 兼容 / 离线提纲
+  studio.py      从课件出题、挑生词；把生词和课件页、题目关联起来
   manual.py      网页版模式：分组提示词、解析粘贴回来的回复
   jobs.py        后台任务（导入、批量生成）与进度
   server.py      本地 HTTP 服务与 JSON API

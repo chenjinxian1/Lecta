@@ -155,32 +155,52 @@ def _same_src(a: dict, b: dict) -> bool:
     return a["kind"] == b["kind"] and a["id"] == b["id"] and a.get("page") == b.get("page") and a.get("n") == b.get("n")
 
 
-def add_word(entry: dict) -> dict:
-    """加入单词；已存在则合并出处、补全空字段。"""
+def _merge(words: list[dict], entry: dict) -> tuple[dict, bool]:
+    """把一个条目并进 words（原地修改）。返回 (条目, 是否新建)。"""
     w = re.sub(r"\s+", " ", str(entry.get("w", "")).strip())[:80]
     if not w:
         raise ValueError("单词不能为空")
     src = [s for s in (_clean_src(x) for x in (entry.get("src") or [])) if s]
+    for v in words:
+        if _key(v["w"]) == _key(w):
+            for k in ("m", "d", "uk", "course", "note"):
+                if entry.get(k) and not v.get(k):
+                    v[k] = entry[k]
+            for s in src:
+                if not any(_same_src(s, o) for o in v.setdefault("src", [])):
+                    v["src"].append(s)
+            return v, False
+    now = _now()
+    v = {"w": w, "m": str(entry.get("m") or "")[:300], "d": str(entry.get("d") or "")[:500], "uk": str(entry.get("uk") or "")[:60],
+         "note": str(entry.get("note") or "")[:1000], "tags": [str(t)[:20] for t in (entry.get("tags") or [])][:10],
+         "course": entry.get("course") or None, "src": src, "added": entry.get("added") or now,
+         "srs": {"level": 0, "due": now, "reps": 0, "lapses": 0, "last": 0}}
+    words.insert(0, v)
+    return v, True
+
+
+def add_word(entry: dict) -> dict:
+    """加入单词；已存在则合并出处、补全空字段。"""
     with library._lock:
         words = load_vocab()
-        for v in words:
-            if _key(v["w"]) == _key(w):
-                for k in ("m", "d", "uk", "course"):
-                    if entry.get(k) and not v.get(k):
-                        v[k] = entry[k]
-                for s in src:
-                    if not any(_same_src(s, o) for o in v.setdefault("src", [])):
-                        v["src"].append(s)
-                _save_vocab(words)
-                return v
-        now = _now()
-        v = {"w": w, "m": str(entry.get("m") or "")[:300], "d": str(entry.get("d") or "")[:500], "uk": str(entry.get("uk") or "")[:60],
-             "note": str(entry.get("note") or "")[:1000], "tags": [str(t)[:20] for t in (entry.get("tags") or [])][:10],
-             "course": entry.get("course") or None, "src": src, "added": entry.get("added") or now,
-             "srs": {"level": 0, "due": now, "reps": 0, "lapses": 0, "last": 0}}
-        words.insert(0, v)
+        v, _ = _merge(words, entry)
         _save_vocab(words)
         return v
+
+
+def add_words(entries: list[dict]) -> dict:
+    """批量加入（AI 提取的生词、讲解里的术语）。返回 {"added": [...], "merged": [...]}。"""
+    added, merged = [], []
+    with library._lock:
+        words = load_vocab()
+        for e in entries:
+            try:
+                v, new = _merge(words, e)
+            except ValueError:
+                continue
+            (added if new else merged).append(v["w"])
+        _save_vocab(words)
+    return {"added": added, "merged": merged}
 
 
 def update_word(w: str, patch: dict) -> dict:

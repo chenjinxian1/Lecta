@@ -247,6 +247,7 @@ async function renderHome() {
         <span class="cbar"></span>
         <div class="ct"><h2>${esc(g.name)}</h2><p>${meta}${g.desc ? ` · ${esc(g.desc)}` : ''}</p></div>
         <span class="spacer"></span>
+        ${g.decks.length ? `<button class="btn sm ghost" data-squiz="${esc(g.key)}" title="${L('根据这门课的课件出选择题', 'Write practice questions from this course’s slides')}">${icon('spark')}${L('AI 出题', 'AI quiz')}</button>` : ''}
         <button class="btn sm" data-import="${esc(g.key)}">${icon('upload')}${L('导入课件', 'Import slides')}</button>
         ${g.loose ? '' : `<button class="ibtn" data-cedit="${esc(g.id)}" title="${L('课程设置', 'Course settings')}">${icon('dots')}</button>`}
       </div>
@@ -257,11 +258,16 @@ async function renderHome() {
   }).join('');
 
   $$('[data-import]', el).forEach(b => b.onclick = () => { HOME.course = b.dataset.import || null; $('#file').click(); });
+  $$('[data-squiz]', el).forEach(b => b.onclick = () => {
+    const g = groups.find(x => x.key === b.dataset.squiz); if (!g) return;
+    const ds = g.decks.slice().sort(byChapter);
+    studioDialog('quiz', ds, ds.filter(d => d.noted).map(d => d.id), g.id || null);
+  });
   $$('[data-cedit]', el).forEach(b => b.onclick = () => courseDialog(m.courses.find(c => c.id === b.dataset.cedit)));
   $$('[data-dismiss]', el).forEach(b => b.onclick = () => { pendingImports.delete(b.dataset.dismiss); renderHome(); });
   const allDecks = [...m.courses.flatMap(c => c.decks.map(d => ({ ...d, course: c.id }))), ...un.decks];
   const allQuizzes = [...m.courses.flatMap(c => c.quizzes.map(z => ({ ...z, course: c.id }))), ...un.quizzes];
-  $$('[data-dmenu]', el).forEach(b => b.onclick = e => { e.preventDefault(); deckMenu(allDecks.find(d => d.id === b.dataset.dmenu)); });
+  $$('[data-dmenu]', el).forEach(b => b.onclick = e => { e.preventDefault(); deckMenu(allDecks.find(d => d.id === b.dataset.dmenu), allDecks); });
   $$('[data-qmenu]', el).forEach(b => b.onclick = e => { e.preventDefault(); quizMenu(allQuizzes.find(z => z.id === b.dataset.qmenu)); });
   // 把文件拖到某门课上，就导入到那门课
   $$('section.course', el).forEach(sec => {
@@ -320,7 +326,7 @@ async function copyExport(path, label) {
   } catch (e) { toast(e.message); }
 }
 
-async function deckMenu(d) {
+async function deckMenu(d, all = []) {
   const courses = await getCourses();
   const dlg = $('#dlg');
   dlg.innerHTML = `<form method="dialog">
@@ -329,11 +335,19 @@ async function deckMenu(d) {
       <label class="field"><span>${L('名称', 'Name')}</span><input type="text" id="dTitle" value="${esc(d.title)}"></label>
       <label class="field"><span>${L('所属课程', 'Course')}</span><select id="dCourse">${courseOptions(courses, d.course)}</select></label>
       <div class="note-box">${L('来源文件', 'Source file')}: ${esc(d.source)} · ${L(`${d.pages} 页 · 已有讲解 ${d.noted} 页`, `${d.pages} pages · notes on ${d.noted}`)}${d.marks ? ` · ${L(`${d.marks} 页有标注`, `${d.marks} annotated`)}` : ''}<br>${L('课件 ID', 'Deck ID')}: <code>${esc(d.id)}</code></div>
+      <div class="field"><span>${L('用这份课件', 'Study with this deck')}</span>
+        <div class="row wrap"><button class="btn" type="button" id="dQuiz">${icon('spark')}${L('AI 出题', 'Make a quiz')}</button>
+          <button class="btn" type="button" id="dWords">${icon('cards')}${L('AI 挑生词', 'Pick words')}</button>
+          <button class="btn" type="button" id="dTerms" ${d.noted ? '' : 'disabled'} title="${L('把讲解卡片里的关键术语收进单词本，不用 AI', 'Save the key terms from the notes into your word book (no AI needed)')}">${icon('plus')}${L('收集讲解里的术语', 'Save key terms')}</button></div></div>
       <button class="btn" type="button" id="dCopy">${icon('copy')}${L('复制全部文字给 AI（含讲解和我的标注）', 'Copy all text for AI (with notes and my annotations)')}</button>
     </div>
     <div class="dlg-foot"><button class="btn danger ghost" type="button" id="dDel">${icon('trash')}${L('删除课件', 'Delete deck')}</button>
       <span class="spacer"></span><button class="btn" value="cancel">${L('取消', 'Cancel')}</button><button class="btn primary" id="dSave">${L('保存', 'Save')}</button></div></form>`;
   $('#dCopy').onclick = () => copyExport(`decks/${encodeURIComponent(d.id)}/export`, L('课件内容', 'the deck'));
+  const same = all.filter(x => (x.course || null) === (d.course || null)).sort(byChapter);
+  $('#dQuiz').onclick = () => { dlg.close(); studioDialog('quiz', same.length ? same : [d], [d.id], d.course || null); };
+  $('#dWords').onclick = () => { dlg.close(); studioDialog('words', [d], [d.id], d.course || null); };
+  $('#dTerms').onclick = () => collectTerms({ deck: d.id });
   $('#dSave').onclick = async e => {
     e.preventDefault();
     try { await api('decks/' + encodeURIComponent(d.id), { method: 'PUT', json: { title: $('#dTitle').value, course: $('#dCourse').value || null } }); }
@@ -357,11 +371,13 @@ async function quizMenu(z, after) {
       <label class="field"><span>${L('所属课程', 'Course')}</span><select id="zCourse">${courseOptions(courses, z.course)}</select></label>
       <div class="note-box">${L(`${z.count} 题 · 答对 ${z.stats.right} · 答错 ${z.stats.wrong}`, `${z.count} questions · ${z.stats.right} right · ${z.stats.wrong} wrong`)}<br>${L('题库 ID', 'Quiz ID')}: <code>${esc(z.id)}</code></div>
       <button class="btn" type="button" id="zCopy">${icon('copy')}${L('复制题目和我的作答给 AI', 'Copy questions and my answers for AI')}</button>
+      <button class="btn" type="button" id="zTerms">${icon('plus')}${L('把题目里的关键术语收进单词本', 'Save the key terms into my word book')}</button>
     </div>
     <div class="dlg-foot"><button class="btn danger ghost" type="button" id="zDel">${icon('trash')}${L('删除题库', 'Delete quiz')}</button>
       <span class="spacer"></span><button class="btn" value="cancel">${L('取消', 'Cancel')}</button><button class="btn primary" id="zSave">${L('保存', 'Save')}</button></div></form>`;
   const done = () => { dlg.close(); (after || renderHome)(); };
   $('#zCopy').onclick = () => copyExport(`quizzes/${encodeURIComponent(z.id)}/export`, L('题库和作答记录', 'the quiz and your answers'));
+  $('#zTerms').onclick = () => collectTerms({ quiz: z.id });
   $('#zSave').onclick = async e => {
     e.preventDefault();
     try { await api('quizzes/' + encodeURIComponent(z.id), { method: 'PUT', json: { title: $('#zTitle').value, course: $('#zCourse').value || null } }); }
@@ -646,6 +662,110 @@ function openWebWizard(focusPage) {
   dlg.showModal();
 }
 
+/* ---------- 讲解 → 题库 → 单词本：AI 出题、AI 挑生词 ---------- */
+// kind: 'quiz' | 'words'；decks: 可选的课件 [{id, title}]；pick: 预先勾选的课件 ID
+async function studioDialog(kind, decks, pick, course) {
+  const dlg = $('#dlg');
+  let settings = {};
+  try { settings = await api('settings'); } catch {}
+  const auto = !!settings.provider && !['web', 'outline'].includes(settings.provider);   // Claude Code / API：可以一键生成
+  const engine = settings.provider === 'claude-cli' ? 'Claude Code' : 'API';
+  const isQuiz = kind === 'quiz';
+  let lastChat = store.get('web.chat', 'ChatGPT');
+  const sel = new Set(pick && pick.length ? pick : decks.slice(0, 1).map(d => d.id));
+  dlg.innerHTML = `<form method="dialog" class="wiz studio">
+    <div class="dlg-head"><div><h2>${isQuiz ? L('AI 出题', 'Make a quiz with AI') : L('AI 挑生词', 'Pick words with AI')}</h2>
+      <p class="sub">${isQuiz ? L('根据课件出选择题：每道题都标好出自哪一页，自动放进同一门课，做错的题能一键跳回课件。', 'Multiple-choice questions from your slides. Each one links back to its slide, and the quiz goes into the same course.')
+        : L('从课件里挑出该背的术语和难词：带中英释义、页码和原句，直接进单词本复习。', 'Subject terms and hard words from the slides, with meanings, page numbers and the original sentence, straight into your word book.')}</p></div>
+      <button class="ibtn" value="cancel">${icon('x')}</button></div>
+    <div class="dlg-body">
+      <div class="st-opts">
+        ${isQuiz ? `<div class="field"><span>${L('出自哪些课件', 'From these decks')}</span><div class="deck-picks">${decks.map(d => `<label class="check"><input type="checkbox" value="${esc(d.id)}" ${sel.has(d.id) ? 'checked' : ''}><span>${esc(d.title)}</span></label>`).join('')}</div></div>`
+          : `<div class="note-box">${esc(decks.find(d => sel.has(d.id))?.title || '')}</div>`}
+        <div class="row">
+          <label class="field"><span>${isQuiz ? L('题数', 'Questions') : L('最多几个词', 'Up to')}</span><select id="sCount">${(isQuiz ? [5, 10, 15, 20, 30] : [10, 20, 30, 40]).map(n => `<option ${n === (isQuiz ? 10 : 20) ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+          ${isQuiz ? `<label class="field grow"><span>${L('侧重点（可不填）', 'Focus (optional)')}</span><input type="text" id="sFocus" placeholder="${L('例如：计算题、容易混淆的概念、第 3–5 页', 'e.g. calculations, easily confused ideas, slides 3–5')}"></label>`
+            : `<label class="field grow"><span>${L('页码（可不填）', 'Pages (optional)')}</span><input type="text" id="sPages" placeholder="${L('例如 1-10；不填就是整份课件', 'e.g. 1-10; blank means all')}"></label>`}
+        </div>
+      </div>
+      ${auto ? `<div class="auto-box"><button class="btn primary" type="button" id="sRun">${icon('spark')}${L(`用 ${engine} 自动生成`, `Generate with ${engine}`)}</button><span class="muted" id="sRunMsg">${L('或者用下面的网页版方式', 'or use a web AI below')}</span></div>` : ''}
+      <ol class="steps">
+        <li><div class="st-h"><b>${L('复制提示词', 'Copy the prompt')}</b></div>
+          <div class="row"><button class="btn ${auto ? '' : 'primary'}" type="button" id="sCopy">${icon('copy')}${L('复制提示词', 'Copy prompt')}</button>
+            <span class="chats">${L('打开', 'Open')} ${CHATS.map(([n, u]) => `<a href="${u}" target="_blank" rel="noopener" data-chat="${n}" class="${n === lastChat ? 'on' : ''}">${n}</a>`).join('')}</span></div></li>
+        <li><div class="st-h"><b>${L('在 AI 网页里粘贴并发送', 'Paste it into the AI chat and send')}</b></div>
+          <p class="muted">${L('新开一个对话。回复中途停了就说“继续”，再把几段一起复制回来。', 'Start a new chat. If the reply stops, say “continue” and copy all parts back together.')}</p></li>
+        <li><div class="st-h"><b>${L('把 AI 的完整回复粘贴到这里', 'Paste the full AI reply here')}</b></div>
+          <textarea id="sText" spellcheck="false" placeholder="${L('点 AI 回复下方的“复制”按钮，然后在这里 Ctrl+V', 'Click “Copy” under the AI reply, then press Ctrl+V here')}"></textarea></li>
+      </ol>
+      <div class="test-msg" id="sMsg"></div>
+    </div>
+    <div class="dlg-foot"><span class="spacer"></span><button class="btn" value="cancel">${L('关闭', 'Close')}</button>
+      <button class="btn primary" type="button" id="sSave" disabled>${isQuiz ? L('保存题库', 'Save quiz') : L('加入单词本', 'Add to word book')}</button></div></form>`;
+
+  const body = () => {
+    const b = { count: +$('#sCount').value, course: course || null };
+    if (isQuiz) { b.decks = $$('.deck-picks input:checked', dlg).map(x => x.value); b.focus = $('#sFocus').value; }
+    else { b.decks = [...sel]; if ($('#sPages').value.trim()) b.pages = $('#sPages').value.trim(); }
+    if (!b.decks.length) throw new Error(L('至少选一份课件', 'Pick at least one deck'));
+    return b;
+  };
+  const msg = (cls, html) => { const m = $('#sMsg'); m.className = 'test-msg ' + cls; m.innerHTML = html; };
+  let saved = false;
+  dlg.addEventListener('close', () => { if (saved && $('#home')) renderHome(); }, { once: true });
+  const done = r => {
+    saved = true;
+    if (isQuiz) msg('ok', L(`已生成题库《${esc(r.title)}》，${r.count} 题。`, `Saved “${esc(r.title)}”: ${pl(r.count, 'question')}.`) + ` <a href="#/quiz/${encodeURIComponent(r.id)}" data-close>${L('去做题 →', 'Start the quiz →')}</a>`);
+    else {
+      msg('ok', L(`单词本新加 ${r.added.length} 个词`, `${pl(r.added.length, 'new word')} added`) + (r.merged.length ? L(`，${r.merged.length} 个已有的词补上了出处`, `; ${r.merged.length} existing words got a new source`) : '') +
+        `。 <a href="#/vocab${course ? '?course=' + encodeURIComponent(course) : ''}" data-close>${L('打开单词本 →', 'Open the word book →')}</a>`);
+      VOCAB = null; loadVocab().then(() => { if (R) { updateCount(); if (R.tab === 'vocab') renderVocab(); } }).catch(() => {});
+    }
+  };
+  dlg.querySelectorAll('[data-chat]').forEach(a => a.onclick = () => {
+    lastChat = a.dataset.chat; store.set('web.chat', lastChat);
+    dlg.querySelectorAll('[data-chat]').forEach(x => x.classList.toggle('on', x === a));
+  });
+  dlg.addEventListener('click', e => { if (e.target.closest('[data-close]')) dlg.close(); });
+  $('#sCopy').onclick = async () => {
+    try {
+      const r = await api(`studio/${kind}/prompt`, { method: 'POST', json: body() });
+      await copyText(r.prompt);
+      msg('ok', L(`已复制提示词（${r.prompt.length.toLocaleString()} 字）。去 ${lastChat} 粘贴发送。`, `Prompt copied (${r.prompt.length.toLocaleString()} characters). Paste it into ${lastChat} and send.`));
+    } catch (e) { msg('bad', esc(e.message)); }
+  };
+  $('#sText').oninput = () => { $('#sSave').disabled = !$('#sText').value.trim(); };
+  $('#sSave').onclick = async () => {
+    try {
+      const r = await api(`studio/${kind}/save`, { method: 'POST', json: { ...body(), text: $('#sText').value } });
+      $('#sText').value = ''; $('#sSave').disabled = true; done(r);
+    } catch (e) { msg('bad', esc(e.message).replace(/\n/g, '<br>')); }
+  };
+  if ($('#sRun')) $('#sRun').onclick = async () => {
+    const btn = $('#sRun'), note = $('#sRunMsg');
+    try {
+      const job = await api(`studio/${kind}/run`, { method: 'POST', json: body() });
+      btn.disabled = true; note.textContent = L(`${engine} 正在写，一般需要 1–3 分钟…`, `${engine} is writing. This usually takes 1–3 minutes…`);
+      pollJob(job.id, j => {
+        if (j.status === 'running') return;
+        btn.disabled = false; note.textContent = '';
+        if (j.status === 'done') done(j.result); else msg('bad', esc(srvMsg(j.message)));
+      });
+    } catch (e) { msg('bad', esc(e.message)); }
+  };
+  dlg.showModal();
+}
+
+// 把讲解卡片 / 题目里的关键术语收进单词本（不用 AI）
+async function collectTerms(json) {
+  try {
+    const r = await api('vocab/collect', { method: 'POST', json });
+    VOCAB = null; await loadVocab().catch(() => {});
+    toast(L(`单词本新加 ${r.added.length} 个术语`, `${pl(r.added.length, 'term')} added to your word book`) + (r.merged.length ? L(`，${r.merged.length} 个已有`, `, ${r.merged.length} already there`) : ''));
+    if (R) { updateCount(); if (R.tab === 'vocab') renderVocab(); }
+  } catch (e) { toast(e.message); }
+}
+
 async function copyText(t) {
   try { await navigator.clipboard.writeText(t); return; } catch {}
   const ta = Object.assign(document.createElement('textarea'), { value: t });
@@ -746,6 +866,7 @@ async function openReader(id, page) {
 
   go(R.cur, true);
   showTab(R.tab);
+  refreshInDeck();
   document.fonts?.ready.then(() => fitText());
   if (deck.jobs?.length) watchJob(deck.jobs[0]);
 }
@@ -815,6 +936,38 @@ function buildTextLayer(n) {
   });
   tl.appendChild(frag);
   fitText();
+  markKnown(n);
+}
+
+// 单词本里的词（不管在哪收藏的）出现在本课件的哪些页
+async function refreshInDeck() {
+  if (!R) return;
+  const id = R.id;
+  try {
+    const r = await api(`decks/${encodeURIComponent(id)}/vocab`);
+    if (!R || R.id !== id) return;
+    R.inDeck = r.words; markKnown(R.cur); updateCount();
+    if (R.tab === 'vocab') renderVocab();
+  } catch {}
+}
+// 课件上的生词加一条淡淡的下划线：单击就能查到“我的单词本”释义
+function markKnown(n) {
+  if (!R || store.get('markWords', true) === false) return;
+  const spans = $$('#tl span'); if (!spans.length) return;
+  spans.forEach(s => s.classList.remove('kw'));
+  const norm = s => s.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
+  const toks = spans.map(s => norm(s.textContent));
+  const list = new Set([...(R.inDeck || []).filter(x => x.pages.includes(n)).map(x => x.w),
+    ...deckWords().filter(x => x.pages.includes(n)).map(x => x.v.w)]);
+  for (const w of list) {
+    const parts = w.toLowerCase().split(/\s+/).map(norm).filter(Boolean);
+    if (!parts.length) continue;
+    const eq = (t, p, last) => t === p || (last && p.length > 3 && t.startsWith(p) && t.length - p.length <= 3);
+    for (let i = 0; i + parts.length <= toks.length; i++) {
+      if (parts.every((p, k) => eq(toks[i + k], p, k === parts.length - 1)))
+        for (let k = 0; k < parts.length; k++) spans[i + k].classList.add('kw');
+    }
+  }
 }
 
 function fitText() {
@@ -1853,6 +2006,26 @@ async function showVocab(course) {
   $('#vList').addEventListener('click', onVocabClick);
   renderVocabPage();
   refreshNav('vocab');
+  api('vocab/where').then(w => { if (VB) { VB.where = w; renderVocabList(); } }).catch(() => {});
+}
+// 单词本卡片：除了收藏时的出处，还列出它在同一门课里出现的其他地方
+function alsoChips(v) {
+  const hits = VB?.where?.[v.w]; if (!hits) return '';
+  const src = v.src || [];
+  const chips = hits.map(h => {
+    if (h.kind === 'deck') {
+      const ps = h.pages.filter(p => !src.some(s => s.kind === 'deck' && s.id === h.id && s.page === p));
+      if (!ps.length) return '';
+      const t = NAMES.decks[h.id] || h.id;
+      const shown = ps.slice(0, 4).join(', ') + (ps.length > 4 ? '…' : '');
+      return `<a class="src also" href="#/deck/${encodeURIComponent(h.id)}/${ps[0]}" data-back title="${esc(t)}">${icon('book')}${esc(shortTitle(t))} · ${L(`第 ${shown} 页`, `p.${shown}`)}</a>`;
+    }
+    const ns = h.n.filter(n => !src.some(s => s.kind === 'quiz' && s.id === h.id && s.n === n));
+    if (!ns.length) return '';
+    const t = NAMES.quizzes[h.id] || h.id;
+    return `<a class="src also" href="#/quiz/${encodeURIComponent(h.id)}/${ns[0]}" data-back title="${esc(t)}">${icon('check')}${esc(shortTitle(t))} · ${ns.slice(0, 4).map(n => 'Q' + n).join(', ')}${ns.length > 4 ? '…' : ''}</a>`;
+  }).filter(Boolean);
+  return chips.length ? `<span class="also-l">${L('也出现在', 'Also in')}</span>${chips.join('')}` : '';
 }
 const inCourse = v => !VB.course || (VB.course === '-' ? !v.course : v.course === VB.course);
 function renderVocabPage() {
@@ -1927,7 +2100,7 @@ function renderVocabList() {
         <div class="vc-m">${esc(meaningOf(v)) || `<span class="muted">${L('（还没有释义，点“编辑”补上）', '(No English definition yet. Click “Edit” or “Add English definitions”.)')}</span>`}</div>
         ${ctx ? `<div class="vc-ctx">${markWord(ctx, v.w)}</div>` : ''}
         ${v.note ? `<div class="vc-note">${icon('edit')}${esc(v.note)}</div>` : ''}
-        <div class="vc-src">${c ? `<span class="ctag" style="--cc:${esc(c.color)}">${esc(c.name)}</span>` : ''}${(v.tags || []).map(t => `<span class="tag">#${esc(t)}</span>`).join('')}${(v.src || []).map(srcChip).join('')}</div>
+        <div class="vc-src">${c ? `<span class="ctag" style="--cc:${esc(c.color)}">${esc(c.name)}</span>` : ''}${(v.tags || []).map(t => `<span class="tag">#${esc(t)}</span>`).join('')}${(v.src || []).map(srcChip).join('')}${alsoChips(v)}</div>
       </div>
       <div class="vc-side">
         ${levelDots(v)}
@@ -2102,20 +2275,31 @@ function deckWords() {
     .map(v => ({ v, pages: [...new Set(v.src.filter(s => s.kind === 'deck' && s.id === R.id).map(s => s.page).filter(Boolean))].sort((a, b) => a - b) }))
     .sort((a, b) => (a.pages[0] || 0) - (b.pages[0] || 0));
 }
+function alsoInDeck() {
+  if (!R || !R.inDeck) return [];
+  const mine = new Set(deckWords().map(x => x.v.w.toLowerCase()));
+  return R.inDeck.filter(x => !mine.has(x.w.toLowerCase())).map(x => ({ v: findWord(x.w), pages: x.pages })).filter(x => x.v);
+}
 function updateCount() {
-  const c = $('#vcount'); if (c) c.textContent = deckWords().length;
+  const c = $('#vcount'); if (c) c.textContent = deckWords().length + alsoInDeck().length;
   const m = $('#mcount'); if (m && R) m.textContent = Object.keys(R.marks || {}).length;
 }
 function renderVocab() {
   const el = $('#vocab'); if (!el || !R) return;
-  const list = deckWords();
+  const list = deckWords(), also = alsoInDeck();
+  const hasTerms = Object.values(R.notes || {}).some(n => n && (n.k || []).length);
   const head = `<div class="pane-head"><b>${L('本课件的生词', 'Saved here')} ${list.length}</b><span class="spacer"></span>
-    <a class="btn sm" href="#/vocab/review${R.deck.course ? '?course=' + encodeURIComponent(R.deck.course) : ''}">${icon('cards')}${L('复习', 'Review')}</a><a class="btn sm ghost" href="#/vocab">${L('单词本', 'Word book')}</a></div>`;
-  if (!list.length) { el.innerHTML = head + `<div class="vocab-empty"><b>${L('还没有生词', 'No words yet')}</b>${L('在课件上划词，查到的单词点“收藏”就会出现在这里，并记住是第几页。', 'Select a word on the slide and click “Save”. It appears here with its page number.')}</div>`; return; }
-  el.innerHTML = head + list.map(({ v, pages }) => `<div class="vrow" data-w="${esc(v.w)}"><span class="w">${esc(v.w)}</span>
+    <a class="btn sm" href="#/vocab/review${R.deck.course ? '?course=' + encodeURIComponent(R.deck.course) : ''}">${icon('cards')}${L('复习', 'Review')}</a><a class="btn sm ghost" href="#/vocab">${L('单词本', 'Word book')}</a></div>
+    <div class="pane-tools">${hasTerms ? `<button class="btn sm ghost" id="vTerms" title="${L('把讲解卡片里的关键术语收进单词本，不用 AI', 'Save the key terms from the notes (no AI needed)')}">${icon('plus')}${L('收集讲解里的术语', 'Save key terms from notes')}</button>` : ''}
+      <button class="btn sm ghost" id="vAI">${icon('spark')}${L('AI 挑生词', 'Pick words with AI')}</button></div>`;
+  const row = ({ v, pages }) => `<div class="vrow" data-w="${esc(v.w)}"><span class="w">${esc(v.w)}</span>
     <span class="ph">${v.uk ? '/' + esc(v.uk) + '/' : ''} ${pages.map(p => `<button class="pg ${p === R.cur ? 'on' : ''}" data-pg="${p}">${L(`第 ${p} 页`, `p.${p}`)}</button>`).join('')}</span>
     <div class="act"><button class="ibtn" data-vs title="${L('英式发音', 'British pronunciation')}">${icon('speak')}</button><button class="ibtn" data-ve title="${L('编辑', 'Edit')}">${icon('edit')}</button></div>
-    <span class="m">${esc(meaningOf(v))}</span></div>`).join('');
+    <span class="m">${esc(meaningOf(v))}</span></div>`;
+  el.innerHTML = head + (list.length ? list.map(row).join('') : `<div class="vocab-empty"><b>${L('还没有生词', 'No words yet')}</b>${L('在课件上划词，查到的单词点“收藏”就会出现在这里，并记住是第几页。也可以用上面的按钮一次收进一批。', 'Select a word on the slide and click “Save”, or use the buttons above to add a batch.')}</div>`) +
+    (also.length ? `<div class="pane-sub">${L(`单词本里的其他词，也出现在这份课件 · ${also.length}`, `Also in these slides, from your word book · ${also.length}`)}</div>` + also.map(row).join('') : '');
+  $('#vTerms') && ($('#vTerms').onclick = () => collectTerms({ deck: R.id }).then(refreshInDeck));
+  $('#vAI').onclick = () => studioDialog('words', [{ id: R.id, title: R.deck.title }], [R.id], R.deck.course || null);
   el.onclick = e => {
     const row = e.target.closest('[data-w]'); if (!row) return;
     const w = row.dataset.w;

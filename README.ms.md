@@ -30,6 +30,7 @@ Lecta dibina untuk pelajar yang belajar dalam bahasa Inggeris sebagai bahasa ked
 - [Ciri-ciri](#ciri-ciri)
 - [Tangkapan skrin](#tangkapan-skrin)
 - [Mula pantas](#mula-pantas)
+- [Satu kursus, semuanya berpaut](#satu-kursus-semuanya-berpaut)
 - [Menjana nota](#menjana-nota)
 - [Bahasa pembelajaran](#bahasa-pembelajaran)
 - [Buku perkataan dan ulang kaji](#buku-perkataan-dan-ulang-kaji)
@@ -48,14 +49,15 @@ Lecta dibina untuk pelajar yang belajar dalam bahasa Inggeris sebagai bahasa ked
 |---|---|
 | 📥 **Import slaid** | Seret masuk `.pptx`, `.ppt` atau `.pdf`. Lecta memaparkan setiap halaman, membuat gambar kecil, dan merekod kedudukan tepat setiap perkataan serta nota penceramah. |
 | ✨ **Nota AI bagi setiap slaid** | Setiap slaid mendapat kad dengan ringkasan satu ayat, isi penting, istilah utama dan tip peperiksaan. Jana satu halaman, satu julat atau keseluruhan dek, jana semula, atau sunting sendiri. |
-| 🔑 **Tidak perlu kunci API** | Gunakan akaun ChatGPT, Claude, Kimi atau DeepSeek yang anda sudah ada: Lecta menulis prompt, anda tampal semula jawapannya, dan ia dipecahkan menjadi nota bagi setiap slaid. Jika [Claude Code](https://claude.com/claude-code) dipasang, nota dijana secara automatik menggunakan langganan Claude anda. Kunci API juga boleh digunakan (Claude, OpenAI dan mana-mana titik akhir serasi OpenAI, termasuk Ollama). |
+| 🔑 **Guna AI yang anda sudah ada** | Tidak perlu kunci API. Gunakan ChatGPT, Claude atau Kimi dalam pelayar (Lecta menulis prompt, anda tampal semula jawapannya), atau biar pembantu AI seperti Claude Code atau Codex membuat kerja itu terus dari folder ini. |
+| 🔗 **Semuanya berpaut** | Nota AI, kuiz dan perkataan semuanya berada di bawah kursus yang sama. Setiap soalan memaut kembali ke slaidnya. Perkataan dalam buku perkataan digariskan pada slaid, dan setiap satu menyenaraikan semua slaid dan soalan dalam kursus yang menggunakannya. |
 | 👆 **Klik mana-mana perkataan** | Klik perkataan pada slaid, atau pilih frasa, untuk melihat maknanya, sebutan IPA British dan audio British. Istilah yang ditakrifkan dalam kursus itu sendiri dipaparkan dahulu. Lapisan teks halimunan dijajarkan perkataan demi perkataan, jadi pilihan anda tepat dengan teks asal. |
 | 🖍️ **Tanda** | Bintangkan halaman penting, tulis nota halaman (disimpan secara automatik), dan serlahkan teks dalam empat warna dengan komen. |
 | 📝 **Kuiz** | Latihan aneka pilihan dengan penerangan, istilah utama dan pautan kembali ke slaid sumber. Tapis mengikut salah, pernah salah atau belum dijawab, dan lihat ketepatan mengikut bab. |
 | 📚 **Buku perkataan** | Setiap perkataan yang disimpan mengingati tempat anda menjumpainya: slaid atau soalan mana, dan ayatnya. Cari, tapis mengikut kursus atau tahap, sunting dan eksport ke CSV. |
 | 🔁 **Ulang kaji berjarak** | Kad imbas (Space untuk terbalikkan, kekunci 1–4 untuk menilai). Kad yang dilupakan kembali dalam 10 minit; yang diingati dalam 1 → 2 → 4 → 7 → 15 → 30 → 60 hari. |
 | 🌏 **中文 / English** | Pilih bahasa pembelajaran semasa pelancaran pertama dan tukar bila-bila masa. Setiap perkataan menyimpan makna Cina dan definisi Inggeris. |
-| 🤖 **Boleh dibaca oleh AI** | Fail JSON biasa serta [`AI_GUIDE.md`](AI_GUIDE.md), jadi pembantu AI boleh membaca kursus, nota, kesilapan dan perkataan anda, atau menambah kuiz ke kursus yang betul. |
+| 🤖 **Pembantu AI boleh menguruskannya** | [`AGENTS.md`](AGENTS.md) mengajar Claude Code, Codex dan ejen lain untuk memasang Lecta, mengimport slaid, menulis nota, membuat kuiz, membina senarai perkataan dan mencari kelemahan anda. |
 | 🌙 **Selesa dibaca** | Tukar halaman dengan kekunci anak panah, jalur gambar kecil, panel boleh diubah saiz, mod gelap, dan ia mengingati di mana anda berhenti. |
 
 ## Tangkapan skrin
@@ -76,6 +78,23 @@ Anda perlukan **Python 3.10 atau lebih baharu**.
 git clone https://github.com/chenjinxian1/Lecta.git
 cd Lecta
 ```
+
+### Pilihan A: biar AI memasangnya
+
+Jika anda menggunakan [Claude Code](https://claude.com/claude-code), Codex atau pembantu AI lain yang boleh menjalankan arahan, bukanya dalam folder kosong dan tampal:
+
+```text
+Clone https://github.com/chenjinxian1/Lecta.git, read its AGENTS.md, then set Lecta up
+for me and start it. My study language is English. Create a course called
+"Principles of Microeconomics" (ECON101) and import the slides in <folder slaid anda>.
+Then write the study notes for every slide, make a 15-question quiz, and build my word list.
+```
+
+Pembantu itu memasang semuanya, mengimport slaid anda dan membuat kerja AI sendiri, tanpa kunci API. Buka <http://127.0.0.1:8770> apabila ia sudah sedia.
+
+Hanya ada ChatGPT atau Claude dalam pelayar? Minta: *"Read https://github.com/chenjinxian1/Lecta/blob/main/llms.txt and walk me through installing Lecta on my computer."*
+
+### Pilihan B: pasang sendiri
 
 **Windows:** klik dua kali `启动.bat`. Larian pertama memasang kebergantungan, kemudian pelayar anda membuka <http://127.0.0.1:8770>.
 
@@ -98,6 +117,29 @@ PDF boleh diimport terus. `.ppt` dan `.pptx` ditukar kepada PDF terlebih dahulu 
 - **Sistem lain:** [LibreOffice](https://www.libreoffice.org/).
 
 Jika anda tiada kedua-duanya, eksport ke PDF daripada PowerPoint atau Keynote dan import PDF itu. PDF tidak membawa nota penceramah.
+
+## Satu kursus, semuanya berpaut
+
+```
+ slaid ──► nota AI setiap slaid ──► istilah utama ─────────┐
+   │                                                        ▼
+   └──► kuiz AI (setiap soalan memaut ke slaidnya) ──► buku perkataan ──► ulang kaji
+                                                        │
+        perkataan digariskan pada setiap slaid yang menggunakannya ◄─┘
+```
+
+| Langkah | Dalam aplikasi | Apa yang dipautkan |
+|---|---|---|
+| **Nota** | Pembaca → **AI notes** | Satu kad setiap slaid, dengan istilah utama |
+| **Kuiz** | Pengepala kursus → **AI quiz**, atau menu ⋯ dek → **Make a quiz** | Soalan daripada satu atau beberapa dek; setiap satu ada bab dan nombor slaid, dan **Slides** melompat kembali ke slaid itu |
+| **Perkataan** | Menu ⋯ dek atau tab **Words** dalam pembaca → **Pick words with AI** / **Save key terms from notes** | Istilah dan perkataan sukar, dengan makna Cina, definisi Inggeris, nombor slaid dan ayat asal |
+| **Ulang kaji** | Buku perkataan → **Review** | Setiap kad menunjukkan sumbernya; buku perkataan juga menyenaraikan slaid dan soalan lain yang menggunakan perkataan itu |
+
+Setiap langkah AI boleh dibuat dengan tiga cara. Pilih yang anda ada:
+
+- **Sembang web** (ChatGPT, Claude, Kimi…): wizard menyalin prompt; anda tampal semula jawapannya.
+- **Pembantu AI dalam folder ini** (Claude Code, Codex…): ia menjalankan `python -m kejian prompt …`, menulis JSON sendiri dan menyimpannya dengan `python -m kejian save …`. Lihat [AGENTS.md](AGENTS.md).
+- **Satu klik**: jika **Claude Code** dipilih dalam AI settings, wizard yang sama ada butang **Generate** yang menggunakan langganan Claude anda.
 
 ## Menjana nota
 
@@ -122,18 +164,9 @@ Klik **AI notes** dalam pembaca. Wizard membahagikan dek kepada kumpulan 8 slaid
 
 Jalankan `claude` sekali dalam terminal dan log masuk dengan akaun Claude anda. Kemudian pilih **Claude Code** dalam AI settings dan klik "Test connection". Selepas itu, **AI notes** menjana di latar belakang, dua slaid pada satu masa. Lecta hanya memanggil `claude -p` tempatan anda, membenarkan alat Read (baca sahaja) untuk melihat imej slaid, dan tidak pernah membaca atau menyimpan maklumat log masuk anda.
 
-### Kunci API
+### Kunci API (pilihan)
 
-| Penyedia | Model lalai | Nota |
-|---|---|---|
-| Claude (Anthropic) | `claude-opus-5-5` | SDK rasmi dengan output JSON berstruktur; rangka dek dicache, jadi penjanaan pukal lebih murah. |
-| OpenAI | `gpt-5` | |
-| DeepSeek / Qwen / Kimi | diisi awal | URL asas diisi untuk anda. |
-| Ollama | `qwen2.5:14b` | Sepenuhnya tempatan. |
-| Rangka luar talian | — | Tanpa AI. Teks slaid disusun menjadi rangka. |
-
-- Kunci disimpan hanya dalam `config.local.json` di komputer anda, yang ada dalam `.gitignore`. Pemboleh ubah persekitaran `ANTHROPIC_API_KEY` dan `OPENAI_API_KEY` juga boleh digunakan.
-- "Send slide images to the model" dihidupkan secara lalai, membantu untuk carta dan rajah. Model yang tidak dapat membaca imej akan menggunakan teks sahaja.
+Kebanyakan orang tidak memerlukannya. Jika anda ada kunci, Lecta menyokong Claude (Anthropic SDK), OpenAI, dan mana-mana titik akhir serasi OpenAI (DeepSeek, Qwen, Kimi, Ollama tempatan). Kunci disimpan hanya dalam `config.local.json` di komputer anda, yang ada dalam `.gitignore`.
 
 ## Bahasa pembelajaran
 
@@ -157,10 +190,11 @@ Setiap perkataan menyimpan kedua-dua makna (`m` untuk Cina, `d` untuk Inggeris),
 
 ## Kuiz
 
-Kuiz berada di dalam kursus. Ada dua cara untuk menambahnya:
+Kuiz berada di dalam kursus. Ada tiga cara untuk menambahnya:
 
+- **Kuiz AI**: pilih satu atau beberapa dek, bilangan soalan dan fokus pilihan ("pengiraan", "konsep yang mudah keliru"). Gunakan wizard sembang web, pembantu AI, atau satu klik dengan Claude Code (lihat [Satu kursus, semuanya berpaut](#satu-kursus-semuanya-berpaut)).
 - **Daripada PowerPoint**: satu soalan setiap slaid, dengan `Answer: B` dalam nota penceramah.
-- **Daripada JSON**: formatnya ada dalam [`AI_GUIDE.md`](AI_GUIDE.md). Minta mana-mana AI menulis soalan daripada nota anda dalam format ini, kemudian import:
+- **Daripada JSON**: formatnya ada dalam [`AI_GUIDE.md`](AI_GUIDE.md).
 
 ```bash
 python -m kejian quiz kuiz-saya.json --course econ101 --check   # semak sahaja
@@ -171,17 +205,24 @@ Jawapan disimpan dalam pustaka, jadi penapis **Wrong** dan **Ever wrong** masih 
 
 ## Untuk pembantu AI
 
-Pustaka Lecta ialah fail JSON biasa, dan [`AI_GUIDE.md`](AI_GUIDE.md) menerangkan setiap fail. Buka folder ini dengan Claude Code, Codex atau ejen pengekodan lain dan minta, contohnya:
+Buka Claude Code, Codex atau pembantu AI lain dalam folder ini. Ia membaca [`AGENTS.md`](AGENTS.md) (Claude Code memuatkannya melalui `CLAUDE.md`) dan boleh membuat keseluruhan kerja, tanpa kunci API:
 
-- "Buat kuiz 10 soalan daripada Kuliah 3 dan tambah ke ECON101."
-- "Soalan mana yang saya selalu salah? Terangkan konsep di sebaliknya."
-- "Jadikan halaman berbintang dan serlahan saya sebagai helaian ulang kaji."
+- "Pasang Lecta dan import semua fail dalam folder Downloads/ECON101 ke kursus baharu."
+- "Tulis nota untuk Kuliah 4, kemudian buat kuiz 20 soalan daripada Kuliah 3–5."
+- "Pilih perkataan yang patut saya pelajari daripada Kuliah 5 dan tambah ke buku perkataan."
+- "Soalan mana yang saya selalu salah? Terangkan konsepnya dan uji saya lagi."
+
+Arahan yang digunakannya:
 
 ```bash
-python -m kejian manifest          # seluruh pustaka sebagai JSON
-python -m kejian export <deck-id>  # satu dek sebagai Markdown: teks slaid, nota, tanda anda
-python -m kejian export vocab      # buku perkataan sebagai Markdown
+python -m kejian prompt notes|quiz|words <id-dek>…   # arahan, teks slaid dan format JSON
+python -m kejian save   notes|quiz|words <id-dek>… --file jawapan.json
+python -m kejian vocab  collect|add|where|list
+python -m kejian export <id-dek|id-kuiz|vocab>       # teks slaid, nota, tanda, jawapan, sejarah perkataan
+python -m kejian manifest                            # seluruh pustaka sebagai JSON
 ```
+
+[`llms.txt`](llms.txt) ialah ringkasan untuk chatbot yang membaca repositori dari web; [`AI_GUIDE.md`](AI_GUIDE.md) mendokumenkan setiap format fail.
 
 Menggunakan chatbot dalam pelayar? Butang **For AI** di laman utama menyalin gambaran keseluruhan pustaka atau buku perkataan anda, dan setiap dek atau kuiz ada **Copy for AI** dalam menu ⋯.
 
@@ -197,8 +238,14 @@ python -m kejian course assign econ101 <id-dek-atau-kuiz>
 python -m kejian generate <id-dek> --pages 1-10         # hanya halaman tanpa nota
 python -m kejian generate <id-dek> --pages all --overwrite
 python -m kejian quiz kuiz.json --course econ101
+python -m kejian prompt quiz <id-dek>… --count 15       # prompt untuk mana-mana AI; juga: notes, words
+python -m kejian save quiz <id-dek>… --file jawapan.json
+python -m kejian vocab collect <id-dek|id-kuiz>          # istilah utama → buku perkataan, tanpa AI
+python -m kejian vocab where "elasticity" --course econ101
 python -m kejian export <id-dek|id-kuiz|vocab> --out nota.md
 python -m kejian manifest
+python -m kejian config language en                      # bahasa pembelajaran: zh atau en
+python -m kejian doctor                                  # semak Python, kebergantungan, penukar PPT
 python -m kejian check                                  # semak pustaka
 ```
 
@@ -227,7 +274,8 @@ library/
 ```
 kejian/
   importer.py    PPTX/PDF → imej halaman, kotak perkataan, nota penceramah
-  ai.py          penjanaan nota: Claude API, serasi OpenAI, Claude Code, rangka luar talian
+  ai.py          penjanaan nota: Claude Code, Claude API, serasi OpenAI, rangka luar talian
+  studio.py      kuiz dan senarai perkataan daripada slaid; memautkan perkataan ke slaid dan soalan
   manual.py      mod sembang web: prompt berkumpulan dan menghurai jawapan yang ditampal
   jobs.py        tugas latar belakang (import, penjanaan pukal) dan kemajuan
   server.py      pelayan HTTP tempatan dan API JSON

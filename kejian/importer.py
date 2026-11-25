@@ -89,6 +89,19 @@ def _via_libreoffice(src: Path, out: Path) -> bool:
     return out.is_file()
 
 
+def converter_name() -> str | None:
+    """doctor 用：本机能用哪种方式把 PPT 转成 PDF。"""
+    if sys.platform == "win32":
+        try:
+            import winreg
+            winreg.CloseKey(winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, r"PowerPoint.Application"))
+            return "Microsoft PowerPoint"
+        except OSError:
+            pass
+    soffice = _find_soffice()
+    return f"LibreOffice（{soffice}）" if soffice else None
+
+
 def to_pdf(src: Path, out: Path):
     if src.suffix.lower() == ".pdf":
         shutil.copyfile(src, out)

@@ -26,6 +26,7 @@ It was built for students who study in English as a second language, so it has t
 - [Features](#features)
 - [Screenshots](#screenshots)
 - [Quick start](#quick-start)
+- [One course, everything linked](#one-course-everything-linked)
 - [Generating notes](#generating-notes)
 - [Study language](#study-language)
 - [Word book and review](#word-book-and-review)
@@ -44,14 +45,15 @@ It was built for students who study in English as a second language, so it has t
 |---|---|
 | 📥 **Import slides** | Drop in `.pptx`, `.ppt` or `.pdf`. Lecta renders each page, makes thumbnails, and records the exact position of every word plus the speaker notes. |
 | ✨ **AI notes per slide** | Each slide gets a card with a one-line summary, key points, key terms and an exam tip. Generate one page, a range or the whole deck, regenerate, or edit by hand. |
-| 🔑 **No API key needed** | Use the ChatGPT, Claude, Kimi or DeepSeek account you already have: Lecta writes the prompt, you paste the reply back, and it is split into per-slide notes. With [Claude Code](https://claude.com/claude-code) installed, notes are generated automatically on your Claude subscription. API keys also work (Claude, OpenAI and any OpenAI-compatible endpoint, including Ollama). |
+| 🔑 **Uses the AI you already have** | No API key needed. Use ChatGPT, Claude or Kimi in the browser (Lecta writes the prompt, you paste the reply back), or let an AI assistant such as Claude Code or Codex do the work from this folder. |
+| 🔗 **Everything linked** | AI notes, quizzes and words all hang off the same course. Each question links back to its slide. Word-book words are underlined on the slides, and each one lists every slide and question in the course that uses it. |
 | 👆 **Tap any word** | Click a word on the slide, or select a phrase, to see its meaning, British IPA and British audio. Terms that the course itself defines show the course meaning first. The invisible text layer is aligned word by word with the slide, so selections match the original exactly. |
 | 🖍️ **Marks** | Star key pages, write page notes (saved automatically), and highlight text in four colours with comments. Thumbnails show which pages you marked. |
 | 📝 **Quizzes** | Multiple-choice practice with explanations, key terms and a link back to the source slide. Filter by wrong, ever wrong or to-do, and see accuracy by chapter. |
 | 📚 **Word book** | Every saved word remembers where you found it: which slide or question, and the sentence. Search, filter by course or by level, edit and export to CSV. |
 | 🔁 **Spaced review** | Flashcards (Space flips, keys 1–4 grade). Forgotten cards come back in 10 minutes; remembered ones in 1 → 2 → 4 → 7 → 15 → 30 → 60 days. |
 | 🌏 **中文 / English** | Pick a study language on first launch and switch any time. Each word stores both a Chinese meaning and an English definition, so switching needs no new lookups. |
-| 🤖 **AI-readable library** | Plain JSON files plus [`AI_GUIDE.md`](AI_GUIDE.md), so an AI assistant can read your courses, notes, mistakes and words, or add a quiz to the right course. |
+| 🤖 **Your AI can run it** | [`AGENTS.md`](AGENTS.md) teaches Claude Code, Codex and other agents to set Lecta up, import your slides, write the notes, make quizzes, build your word list and find your weak spots. |
 | 🌙 **Comfortable reading** | Arrow-key paging, thumbnail strip, resizable split, dark mode, and it remembers where you stopped. |
 
 ## Screenshots
@@ -74,6 +76,23 @@ git clone https://github.com/chenjinxian1/Lecta.git
 cd Lecta
 ```
 
+### Option A: let your AI set it up
+
+If you use [Claude Code](https://claude.com/claude-code), Codex or another AI assistant that can run commands, open it in an empty folder and paste:
+
+```text
+Clone https://github.com/chenjinxian1/Lecta.git, read its AGENTS.md, then set Lecta up
+for me and start it. My study language is English. Create a course called
+"Principles of Microeconomics" (ECON101) and import the slides in <folder with your slides>.
+Then write the study notes for every slide, make a 15-question quiz, and build my word list.
+```
+
+The assistant installs everything, imports your slides and does the AI work itself, with no API key. Open <http://127.0.0.1:8770> when it says it's ready.
+
+Only have ChatGPT or Claude in the browser? Ask it: *"Read https://github.com/chenjinxian1/Lecta/blob/main/llms.txt and walk me through installing Lecta on my computer."*
+
+### Option B: set it up yourself
+
 **Windows:** double-click `启动.bat`. The first run installs the dependencies, then your browser opens <http://127.0.0.1:8770>.
 
 **macOS / Linux:** run `./start.sh`, or do it by hand:
@@ -95,6 +114,29 @@ PDFs import directly. `.ppt` and `.pptx` are converted to PDF first, using:
 - **Other systems:** [LibreOffice](https://www.libreoffice.org/).
 
 If you have neither, export to PDF from PowerPoint or Keynote and import the PDF. PDFs don't carry speaker notes.
+
+## One course, everything linked
+
+```
+ slides ──► AI notes for every slide ──► key terms ──────────┐
+   │                                                          ▼
+   └──────► AI quiz (each question links to its slide) ──► word book ──► spaced review
+                                                              │
+         words are underlined on every slide that uses them ◄─┘
+```
+
+| Step | In the app | What gets linked |
+|---|---|---|
+| **Notes** | Reader → **AI notes** | One card per slide, with key terms |
+| **Quiz** | Course header → **AI quiz**, or a deck's ⋯ menu → **Make a quiz** | Questions from one or several decks; each has a chapter and slide number, and **Slides** jumps back to it |
+| **Words** | Deck ⋯ menu or reader **Words** tab → **Pick words with AI** / **Save key terms from notes** | Terms and hard words, with Chinese meaning, English definition, slide number and the original sentence |
+| **Review** | Word book → **Review** | Every card shows its source; the word book also lists the other slides and questions where the word appears |
+
+Each AI step can be done three ways. Pick whichever you have:
+
+- **Web chat** (ChatGPT, Claude, Kimi…): the wizard copies a prompt; you paste the reply back.
+- **An AI assistant in this folder** (Claude Code, Codex…): it runs `python -m kejian prompt …`, writes the JSON itself and saves it with `python -m kejian save …`. See [AGENTS.md](AGENTS.md).
+- **One click**: with **Claude Code** chosen in AI settings, the same wizards have a **Generate** button that runs on your Claude subscription.
 
 ## Generating notes
 
@@ -119,18 +161,9 @@ Click **AI notes** in the reader. The wizard splits the deck into batches of 8 s
 
 Run `claude` once in a terminal and log in with your Claude account. Then choose **Claude Code** in AI settings and click "Test connection". From then on, **AI notes** generates in the background, two slides at a time. Lecta only calls your local `claude -p`, allows only the read-only Read tool so it can look at slide images, and never reads or stores your login.
 
-### API keys
+### API keys (optional)
 
-| Provider | Default model | Notes |
-|---|---|---|
-| Claude (Anthropic) | `claude-opus-5-5` | Official SDK with structured JSON output. The deck outline is a cached prompt prefix, so bulk runs cost less. |
-| OpenAI | `gpt-5` | |
-| DeepSeek / Qwen / Kimi | pre-filled | The base URL is filled in for you. |
-| Ollama | `qwen2.5:14b` | Fully local. |
-| Offline outline | — | No AI. The slide text is arranged into an outline. |
-
-- Keys are stored only in `config.local.json` on your computer, which is in `.gitignore`. `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` environment variables also work.
-- "Send slide images to the model" is on by default, which helps with charts and diagrams. Models that can't read images fall back to text only.
+Most people won't need one. If you do have a key, Lecta works with Claude (Anthropic SDK), OpenAI, and any OpenAI-compatible endpoint (DeepSeek, Qwen, Kimi, a local Ollama). The key is stored only in `config.local.json` on your computer, which is in `.gitignore`.
 
 ## Study language
 
@@ -154,10 +187,11 @@ Each saved word keeps both meanings (`m` for Chinese, `d` for English), so switc
 
 ## Quizzes
 
-Quizzes live inside a course. There are two ways to add one:
+Quizzes live inside a course. There are three ways to add one:
 
+- **AI quiz**: pick one or more decks, a number of questions and an optional focus ("calculations", "easily confused ideas"). Use the web-chat wizard, an AI assistant, or one click with Claude Code (see [One course, everything linked](#one-course-everything-linked)).
 - **From a PowerPoint**: one question per slide, with `Answer: B` in the speaker notes.
-- **From JSON**: the format is in [`AI_GUIDE.md`](AI_GUIDE.md). Ask any AI to write questions from your notes in this format, then import:
+- **From JSON**: the format is in [`AI_GUIDE.md`](AI_GUIDE.md).
 
 ```bash
 python -m kejian quiz my-quiz.json --course econ101 --check   # validate only
@@ -168,19 +202,24 @@ Each question can have a Chinese translation, explanations in both languages, ke
 
 ## For AI assistants
 
-Lecta's library is plain JSON, and [`AI_GUIDE.md`](AI_GUIDE.md) describes every file. You can point Claude, ChatGPT or any coding agent at this folder and ask, for example:
+Open Claude Code, Codex or another AI assistant in this folder. It reads [`AGENTS.md`](AGENTS.md) (Claude Code loads it through `CLAUDE.md`) and can then do the whole job, with no API key:
 
-- "Make a 10-question quiz from Lecture 3 and add it to ECON101."
-- "Which questions do I keep getting wrong? Explain the concepts behind them."
-- "Turn my starred pages and highlights into a revision sheet."
+- "Set Lecta up and import everything in my Downloads/ECON101 folder into a new course."
+- "Write the notes for Lecture 4, then make a 20-question quiz from Lectures 3–5."
+- "Pick the words I should learn from Lecture 5 and add them to my word book."
+- "Which questions do I keep getting wrong? Explain the concepts and quiz me again on them."
 
-Useful commands:
+The commands it uses:
 
 ```bash
-python -m kejian manifest          # the whole library as JSON: courses, decks, quizzes, progress
-python -m kejian export <deck-id>  # one deck as Markdown: slide text, notes, your marks
-python -m kejian export vocab      # your word book as Markdown
+python -m kejian prompt notes|quiz|words <deck-id>…   # the brief, the slide text and the JSON format
+python -m kejian save   notes|quiz|words <deck-id>… --file reply.json
+python -m kejian vocab  collect|add|where|list
+python -m kejian export <deck-id|quiz-id|vocab>       # slide text, notes, marks, answers, word history
+python -m kejian manifest                             # the whole library as JSON
 ```
+
+[`llms.txt`](llms.txt) is a short summary for chatbots that read the repository from the web; [`AI_GUIDE.md`](AI_GUIDE.md) documents every file format.
 
 Using a chatbot in the browser instead? The **For AI** button on the home page copies the library overview or your word book, and each deck or quiz has **Copy for AI** in its ⋯ menu.
 
@@ -196,8 +235,14 @@ python -m kejian course assign econ101 <deck-or-quiz-id>
 python -m kejian generate <deck-id> --pages 1-10        # only pages without notes
 python -m kejian generate <deck-id> --pages all --overwrite
 python -m kejian quiz quiz.json --course econ101
+python -m kejian prompt quiz <deck-id>… --count 15     # prompt for any AI; also: notes, words
+python -m kejian save quiz <deck-id>… --file reply.json
+python -m kejian vocab collect <deck-id|quiz-id>        # key terms → word book, no AI
+python -m kejian vocab where "elasticity" --course econ101
 python -m kejian export <deck-id|quiz-id|vocab> --out notes.md
 python -m kejian manifest
+python -m kejian config language en                     # study language: zh or en
+python -m kejian doctor                                 # check Python, dependencies, converters
 python -m kejian check                                  # check the library for problems
 ```
 
@@ -226,7 +271,8 @@ library/
 ```
 kejian/
   importer.py    PPTX/PDF → page images, word boxes, speaker notes (PowerPoint / LibreOffice + PyMuPDF)
-  ai.py          note generation: Claude API, OpenAI-compatible, Claude Code, offline outline
+  ai.py          note generation: Claude Code, Claude API, OpenAI-compatible, offline outline
+  studio.py      quizzes and word lists from slides; links words to slides and questions
   manual.py      web-chat mode: batch prompts and parsing pasted replies
   jobs.py        background jobs (import, bulk generation) and progress
   server.py      local HTTP server and JSON API

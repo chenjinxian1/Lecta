@@ -385,3 +385,52 @@ def generate_page(deck_id: str, n: int, settings: dict) -> dict:
 
 NO_KEY = "还没有配置 API Key：请在“AI 设置”里填写，或改用“离线提纲”"
 FATAL = {NO_KEY, CLI_LOGIN, CLI_MISSING}
+
+
+# ---------------------------------------------------------------- 通用文本任务（出题、提取生词）
+def complete_text(settings: dict, prompt: str, timeout: int = 900) -> str:
+    """把一整段提示词发给当前引擎，返回模型的原始文本回复（由调用方解析 JSON）。"""
+    engine = engine_of(settings)
+    if engine in ("web", "outline"):
+        raise AIError("当前模式不能自动调用 AI：请用“复制提示词 → 粘贴回复”，或在 AI 设置里换成 Claude Code / API Key")
+    if engine == "claude-cli":
+        args = ["--tools", ""] + (["--model", settings["cli_model"]] if settings.get("cli_model") else [])
+        return str(_run_cli(args, prompt, timeout=timeout).get("result") or "")
+    if engine == "anthropic":
+        try:
+            import anthropic
+        except ImportError as e:
+            raise AIError("缺少 anthropic 库：pip install anthropic") from e
+        client = anthropic.Anthropic(api_key=settings.get("api_key") or None, base_url=settings.get("base_url") or None)
+        try:
+            # 题库可能很长，用流式避免长请求超时
+            with client.messages.stream(model=settings.get("model") or "claude-opus-5-5", max_tokens=32000,
+                                        messages=[{"role": "user", "content": prompt}]) as stream:
+                msg = stream.get_final_message()
+        except anthropic.AuthenticationError as e:
+            raise AIError("API Key 无效，请在“设置”里检查") from e
+        except anthropic.APIConnectionError as e:
+            raise AIError("连不上 Claude API，请检查网络 / 代理") from e
+        except anthropic.APIStatusError as e:
+            raise AIError(f"Claude API 错误 {e.status_code}：{e.message}") from e
+        except TypeError as e:
+            raise AIError(NO_KEY) from e
+        if msg.stop_reason == "refusal":
+            raise AIError("模型拒绝了这个请求")
+        return "".join(b.text for b in msg.content if b.type == "text")
+    try:
+        from openai import OpenAI, APIStatusError, APIConnectionError, AuthenticationError
+    except ImportError as e:
+        raise AIError("缺少 openai 库：pip install openai") from e
+    client = OpenAI(api_key=settings.get("api_key") or None, base_url=settings.get("base_url") or None, timeout=timeout)
+    try:
+        r = client.chat.completions.create(model=settings.get("model") or "gpt-5", messages=[{"role": "user", "content": prompt}])
+    except AuthenticationError as e:
+        raise AIError("API Key 无效，请在“设置”里检查") from e
+    except APIConnectionError as e:
+        raise AIError("连不上接口，请检查网络和 Base URL") from e
+    except APIStatusError as e:
+        raise AIError(f"接口错误 {e.status_code}：{e.message}") from e
+    except Exception as e:  # noqa: BLE001  openai 缺 Key 时抛 OpenAIError
+        raise AIError(NO_KEY if re.search(r"api[_ ]?key|auth", str(e), re.I) else str(e)) from e
+    return r.choices[0].message.content or ""

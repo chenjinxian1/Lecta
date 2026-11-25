@@ -11,7 +11,7 @@ import urllib.parse
 import webbrowser
 from pathlib import Path
 
-from . import ai, config, dictionary, jobs, library, manifest, manual, quiz, userdata
+from . import ai, config, dictionary, jobs, library, manifest, manual, quiz, studio, userdata
 
 MAX_UPLOAD = 400 * 1024 * 1024
 mimetypes.add_type("application/javascript", ".js")
@@ -212,6 +212,30 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if parts == ["manifest"] and method == "GET":
             return self._json(manifest.manifest())
 
+        # ---- 讲解 → 题库 → 单词本（studio.py）
+        if len(parts) == 3 and parts[0] == "studio" and parts[1] in ("quiz", "words") and method == "POST":
+            return self._studio(parts[1], parts[2], self._body_json())
+        if parts == ["vocab", "collect"] and method == "POST":
+            b = self._body_json()
+            try:
+                r = studio.collect_from_notes(str(b["deck"])) if b.get("deck") else studio.collect_from_quiz(str(b.get("quiz", "")))
+            except ValueError as e:
+                raise ApiError(400, str(e)) from e
+            return self._json(r)
+        if parts == ["vocab", "where"] and method == "GET":
+            # 每个词只在它自己那门课的课件和题库里找（没分课程的词在全部里找）
+            want = (qs.get("course") or [""])[0] or None
+            groups = {}
+            for v in userdata.load_vocab():
+                if not want or v.get("course") == want:
+                    groups.setdefault(v.get("course") or None, []).append(v["w"])
+            out = {}
+            for c, ws in groups.items():
+                out.update(studio.where(ws, c))
+            return self._json(out)
+        if len(parts) == 3 and parts[0] == "decks" and parts[2] == "vocab" and method == "GET":
+            return self._json({"words": studio.deck_words(urllib.parse.unquote(parts[1]))})
+
         # ---- 课程
         if parts == ["courses"]:
             if method == "POST":
@@ -328,6 +352,33 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except Exception as e:  # noqa: BLE001
                 return self._json({"error": str(e)}, 502)
 
+        raise ApiError(404, "not found")
+
+    def _studio(self, kind, action, b):
+        """POST /api/studio/<quiz|words>/<prompt|save|run>"""
+        decks = [str(x) for x in (b.get("decks") or ([b["deck"]] if b.get("deck") else []))]
+        if not decks:
+            raise ApiError(400, "没有选择课件")
+        for d in decks:
+            library.deck_dir(d)
+        count = max(3, min(60, int(b.get("count") or (10 if kind == "quiz" else 20))))
+        if kind == "quiz":
+            prompt = lambda: studio.quiz_prompt(decks, count, str(b.get("focus") or ""))
+            save = lambda text: studio.save_quiz_reply(text, decks, b.get("course") or None, b.get("title") or None)
+        else:
+            total = len(library.get_deck(decks[0])["pages"])
+            pages = _parse_pages(b["pages"], total) if b.get("pages") else None
+            prompt = lambda: studio.words_prompt(decks[0], count, pages)
+            save = lambda text: studio.save_words_reply(text, decks[0])
+        try:
+            if action == "prompt":
+                return self._json({"prompt": prompt()})
+            if action == "save":
+                return self._json(save(str(b.get("text", ""))))
+            if action == "run":
+                return self._json(jobs.public(jobs.start_task(kind, prompt(), save)))
+        except (ValueError, KeyError) as e:
+            raise ApiError(400, str(e).strip("'")) from e
         raise ApiError(404, "not found")
 
     @staticmethod

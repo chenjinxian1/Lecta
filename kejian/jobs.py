@@ -118,3 +118,24 @@ def start_generate(deck_id: str, pages: list[int], overwrite: bool = False) -> d
 
     threading.Thread(target=run, daemon=True).start()
     return job
+
+
+def start_task(kind: str, prompt: str, save, label: str = "") -> dict:
+    """一次性的 AI 任务（出题、提取生词）：发整段提示词，用 save(回复) 保存。"""
+    settings = config.load_settings()
+    if ai.engine_of(settings) in ("web", "outline"):
+        raise ValueError("当前是网页版模式，请用“复制提示词 → 粘贴回复”的方式")
+    job = _new(kind, total=1, message=label or "AI 正在写…")
+
+    def run():
+        try:
+            job["result"] = save(ai.complete_text(settings, prompt))
+            job.update(status="done", done=1, message="完成")
+        except (ai.AIError, ValueError) as e:
+            job.update(status="error", message=str(e))
+        except Exception as e:  # noqa: BLE001
+            traceback.print_exc()
+            job.update(status="error", message=f"{type(e).__name__}: {e}")
+
+    threading.Thread(target=run, daemon=True).start()
+    return job
