@@ -1,6 +1,6 @@
 # Lecta
 
-> Lecta (课读) is a local, open-source study app for lecture slides. Import a .pptx or .pdf; each slide gets a study note; every word on the slide can be looked up; quizzes link back to their slides; saved words go into a spaced-repetition word book. Everything is organised by course and runs on the user's own computer (Python 3.10+, `python -m kejian`). Study language: Chinese (`zh`) or English (`en`).
+> Lecta (课读) is a local, open-source study app for lecture slides and research papers. Import a .pptx or .pdf; each slide gets a study note; every word on the slide can be looked up; quizzes link back to their slides; saved words go into a spaced-repetition word book. Everything is organised by course and runs on the user's own computer (Python 3.10+, `python -m kejian`). Study language: Chinese (`zh`) or English (`en`).
 
 An AI assistant can do all the "AI" work itself, with no API key: it reads the slides and writes notes, quiz questions and word lists as JSON, then saves them with `python -m kejian save …`. A user with only a web chatbot (ChatGPT, Claude, Kimi…) uses the app's copy-prompt / paste-reply wizards instead.
 
@@ -23,6 +23,7 @@ An AI assistant can do all the "AI" work itself, with no API key: it reads the s
 - `python -m kejian prompt notes|quiz|words DECK-ID… [--pages] [--count] [--focus]` prints the brief, slide text and output format
 - `python -m kejian save notes|quiz|words DECK-ID… --file REPLY.json` validates and saves the reply, linking it to the course, deck pages and word book
 - `python -m kejian vocab collect|add|where|list`
+- `python -m kejian paper add PDF|ARXIV-ID|URL --folder NAME`, then `prompt paper PAPER-ID` / `save paper PAPER-ID --file REPLY.md` writes the paper reading guide (problem, framework, translated abstract and introduction, method with figures, framework-figure reading)
 - `python -m kejian export DECK-ID|QUIZ-ID|vocab`, `python -m kejian manifest` print the user's material and study history for analysis
 
 ## Optional

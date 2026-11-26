@@ -5,7 +5,7 @@ import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from . import ai, config, importer, library
+from . import ai, config, importer, library, papers
 
 JOBS: dict[str, dict] = {}
 _lock = threading.Lock()
@@ -120,8 +120,47 @@ def start_generate(deck_id: str, pages: list[int], overwrite: bool = False) -> d
     return job
 
 
-def start_task(kind: str, prompt: str, save, label: str = "") -> dict:
-    """一次性的 AI 任务（出题、提取生词）：发整段提示词，用 save(回复) 保存。"""
+def start_paper(path=None, original_name: str = "", url: str = "", folder: str | None = None) -> dict:
+    """导入论文：本地 PDF（path）或者链接 / arXiv 编号（url）。"""
+    job = _new("paper", name=original_name or url)
+
+    def progress(done, total, msg):
+        job.update(done=done, total=total, message=msg)
+
+    def run():
+        src = path
+        try:
+            meta = {}
+            if url:
+                aid = papers.arxiv_id(url)
+                old = papers.find_by_arxiv(aid) if aid else None
+                if old:
+                    job.update(status="done", result=old, message="这篇论文已经在论文库里了", existing=True)
+                    return
+                src, name, meta = papers.download(url, progress)
+                job["name"] = meta.get("title") or name
+            else:
+                name = original_name
+            job["result"] = papers.import_paper(src, name, folder=folder, meta=meta, progress=progress)
+            job["status"] = "done"
+        except (importer.ImportError_, ValueError, KeyError) as e:
+            job.update(status="error", message=str(e).strip("'"))
+        except Exception as e:  # noqa: BLE001
+            traceback.print_exc()
+            job.update(status="error", message=f"导入失败：{e}")
+        finally:
+            if src:
+                try:
+                    src.unlink()
+                except OSError:
+                    pass
+
+    threading.Thread(target=run, daemon=True).start()
+    return job
+
+
+def start_task(kind: str, prompt: str, save, label: str = "", images: list | None = None, timeout: int = 900) -> dict:
+    """一次性的 AI 任务（出题、提取生词、论文解读）：发整段提示词，用 save(回复) 保存。"""
     settings = config.load_settings()
     if ai.engine_of(settings) in ("web", "outline"):
         raise ValueError("当前是网页版模式，请用“复制提示词 → 粘贴回复”的方式")
@@ -129,7 +168,7 @@ def start_task(kind: str, prompt: str, save, label: str = "") -> dict:
 
     def run():
         try:
-            job["result"] = save(ai.complete_text(settings, prompt))
+            job["result"] = save(ai.complete_text(settings, prompt, timeout=timeout, images=images))
             job.update(status="done", done=1, message="完成")
         except (ai.AIError, ValueError) as e:
             job.update(status="error", message=str(e))

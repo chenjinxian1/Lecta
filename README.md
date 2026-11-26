@@ -31,6 +31,7 @@ It was built for students who study in English as a second language, so it has t
 - [Study language](#study-language)
 - [Word book and review](#word-book-and-review)
 - [Quizzes](#quizzes)
+- [Reading papers](#reading-papers)
 - [For AI assistants](#for-ai-assistants)
 - [Command line](#command-line)
 - [Your data, privacy and copyright](#your-data-privacy-and-copyright)
@@ -50,6 +51,7 @@ It was built for students who study in English as a second language, so it has t
 | 👆 **Tap any word** | Click a word on the slide, or select a phrase, to see its meaning, British IPA and British audio. Terms that the course itself defines show the course meaning first. The invisible text layer is aligned word by word with the slide, so selections match the original exactly. |
 | 🖍️ **Marks** | Star key pages, write page notes (saved automatically), and highlight text in four colours with comments. Thumbnails show which pages you marked. |
 | 📝 **Quizzes** | Multiple-choice practice with explanations, key terms and a link back to the source slide. Filter by wrong, ever wrong or to-do, and see accuracy by chapter. |
+| 📄 **Read papers** | A separate paper library with folders. Add a PDF or an arXiv link; select any sentence to translate it, ask the AI about it, highlight and comment, or stick a note anywhere on the page. The AI guide explains the problem, the approach, the framework, translates the Abstract and Introduction, walks through the method section by section with its figures, and reads the framework figure part by part. |
 | 📚 **Word book** | Every saved word remembers where you found it: which slide or question, and the sentence. Search, filter by course or by level, edit and export to CSV. |
 | 🔁 **Spaced review** | Flashcards (Space flips, keys 1–4 grade). Forgotten cards come back in 10 minutes; remembered ones in 1 → 2 → 4 → 7 → 15 → 30 → 60 days. |
 | 🌏 **中文 / English** | Pick a study language on first launch and switch any time. Each word stores both a Chinese meaning and an English definition, so switching needs no new lookups. |
@@ -200,6 +202,21 @@ python -m kejian quiz my-quiz.json --course econ101
 
 Each question can have a Chinese translation, explanations in both languages, key terms and the source slide. Answers are saved in the library, so the **Wrong** and **Ever wrong** filters still work next week.
 
+## Reading papers
+
+The **Papers** tab is a library of research papers, kept apart from your courses.
+
+- **Add**: drop in a PDF, or paste an arXiv id or a PDF link (`2504.15278`, `https://arxiv.org/abs/2504.15278`). Lecta reads the title, authors and abstract, and cuts out every numbered figure and table.
+- **Organise**: make folders, drag papers into them, and write a note on each paper ("why I saved this").
+- **Read**: the paper scrolls on the left. Click a word to look it up; select a sentence to see its translation, then highlight it, comment on it, or ask the AI to explain it in context. Press **N** (or the **Note** button) to pin a note anywhere on the page. All comments and notes are listed in **My notes**.
+- **AI guide**: on the right, in this order: what problem the paper solves, how it solves it, the overall framework (input → modules → output), the full translation of the Abstract and Introduction, the method section by section with its figures and key formulas, a deep, part-by-part reading of the framework figure, the other figures and tables, results, limitations and questions to think about. Make it with a web chatbot (copy the prompt, paste the reply), with Claude Code or an API key in one click, or let an AI assistant do it from this folder (`prompt paper` / `save paper`).
+
+```bash
+python -m kejian paper add https://arxiv.org/abs/2504.15278 --folder "3D reconstruction"
+python -m kejian prompt paper <paper-id> --out prompt.md     # the brief, the figure list and the paper text
+python -m kejian save paper <paper-id> --file reply.md
+```
+
 ## For AI assistants
 
 Open Claude Code, Codex or another AI assistant in this folder. It reads [`AGENTS.md`](AGENTS.md) (Claude Code loads it through `CLAUDE.md`) and can then do the whole job, with no API key:
@@ -241,6 +258,7 @@ python -m kejian vocab collect <deck-id|quiz-id>        # key terms → word boo
 python -m kejian vocab where "elasticity" --course econ101
 python -m kejian export <deck-id|quiz-id|vocab> --out notes.md
 python -m kejian manifest
+python -m kejian paper add <pdf|arxiv-id|url> --folder NAME   # also: list, folders, move, note, figures
 python -m kejian config language en                     # study language: zh or en
 python -m kejian doctor                                 # check Python, dependencies, converters
 python -m kejian check                                  # check the library for problems

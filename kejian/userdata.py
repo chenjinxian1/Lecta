@@ -5,7 +5,8 @@ library/
                                课件 / 题库属于哪门课，写在各自 deck.json / 题库 JSON 的 "course" 字段
     _vocab.json                {"words": [单词条目, ...]}，见 VOCAB_FIELDS
     _progress/<题库ID>.json     {"answers": {"<题号>": {"a": 选项下标, "at": 时间, "tries": 次数, "wrong": 答错次数}}}
-    <课件ID>/marks.json         {"<页码>": {"star": bool, "note": "页笔记", "hl": [高亮, ...]}}
+    <课件ID>/marks.json         {"<页码>": {"star": bool, "note": "页笔记", "hl": [高亮, ...], "pins": [便签, ...]}}
+                               便签（论文页面上的批注）：{"id", "x", "y"（页面坐标）, "text", "color", "at"}
 """
 import re
 import time
@@ -288,9 +289,20 @@ def save_page_marks(deck_id: str, page: int, data: dict | None):
             hl.append({"id": str(h.get("id") or f"h{int(time.time() * 1000)}")[:24], "rects": rects,
                        "text": str(h.get("text") or "")[:500],
                        "color": h.get("color") if h.get("color") in HL_COLORS else "yellow",
-                       "note": str(h.get("note") or "")[:2000], "at": h.get("at") or _now()})
+                       "note": str(h.get("note") or "")[:5000], "at": h.get("at") or _now()})
+        pins = []
+        for p in data.get("pins") or []:
+            try:
+                x, y = round(float(p["x"]), 1), round(float(p["y"]), 1)
+            except (KeyError, TypeError, ValueError):
+                continue
+            pins.append({"id": str(p.get("id") or f"p{int(time.time() * 1000)}")[:24], "x": x, "y": y,
+                         "text": str(p.get("text") or "")[:5000],
+                         "color": p.get("color") if p.get("color") in HL_COLORS else "yellow", "at": p.get("at") or _now()})
         clean = {"star": bool(data.get("star")), "note": str(data.get("note") or "")[:5000], "hl": hl}
-        if not clean["star"] and not clean["note"].strip() and not hl:
+        if pins:
+            clean["pins"] = pins
+        if not clean["star"] and not clean["note"].strip() and not hl and not pins:
             clean = None
     with library._lock:
         marks = library._read(d / "marks.json", {})

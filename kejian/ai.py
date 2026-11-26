@@ -388,14 +388,31 @@ FATAL = {NO_KEY, CLI_LOGIN, CLI_MISSING}
 
 
 # ---------------------------------------------------------------- 通用文本任务（出题、提取生词）
-def complete_text(settings: dict, prompt: str, timeout: int = 900) -> str:
-    """把一整段提示词发给当前引擎，返回模型的原始文本回复（由调用方解析 JSON）。"""
+def complete_text(settings: dict, prompt: str, timeout: int = 900, images: list | None = None) -> str:
+    """把一整段提示词发给当前引擎，返回模型的原始文本回复（由调用方解析 JSON）。
+
+    images：一起发给模型看的图片（PNG / JPG 路径），比如论文的框架图。"""
     engine = engine_of(settings)
     if engine in ("web", "outline"):
         raise AIError("当前模式不能自动调用 AI：请用“复制提示词 → 粘贴回复”，或在 AI 设置里换成 Claude Code / API Key")
+    images = [Path(p) for p in (images or []) if Path(p).is_file()] if settings.get("send_images", True) else []
     if engine == "claude-cli":
-        args = ["--tools", ""] + (["--model", settings["cli_model"]] if settings.get("cli_model") else [])
+        args = ["--model", settings["cli_model"]] if settings.get("cli_model") else []
+        if images:
+            # 只开放只读的 Read 工具，只能读图片所在的目录
+            dirs = sorted({str(p.resolve().parent) for p in images})
+            args += ["--tools", "Read", "--allowedTools", "Read", "--permission-mode", "dontAsk"]
+            for x in dirs:
+                args += ["--add-dir", x]
+            prompt = ("First use the Read tool to look at these images:\n" + "\n".join(str(p.resolve()) for p in images)
+                      + "\n\n" + prompt)
+        else:
+            args += ["--tools", ""]
         return str(_run_cli(args, prompt, timeout=timeout).get("result") or "")
+    blocks = []
+    for p in images:
+        mt = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
+        blocks.append((mt, base64.b64encode(p.read_bytes()).decode()))
     if engine == "anthropic":
         try:
             import anthropic
@@ -404,8 +421,10 @@ def complete_text(settings: dict, prompt: str, timeout: int = 900) -> str:
         client = anthropic.Anthropic(api_key=settings.get("api_key") or None, base_url=settings.get("base_url") or None)
         try:
             # 题库可能很长，用流式避免长请求超时
+            content = [{"type": "image", "source": {"type": "base64", "media_type": mt, "data": b}} for mt, b in blocks]
+            content.append({"type": "text", "text": prompt})
             with client.messages.stream(model=settings.get("model") or "claude-opus-5-5", max_tokens=32000,
-                                        messages=[{"role": "user", "content": prompt}]) as stream:
+                                        messages=[{"role": "user", "content": content if blocks else prompt}]) as stream:
                 msg = stream.get_final_message()
         except anthropic.AuthenticationError as e:
             raise AIError("API Key 无效，请在“设置”里检查") from e
@@ -424,7 +443,10 @@ def complete_text(settings: dict, prompt: str, timeout: int = 900) -> str:
         raise AIError("缺少 openai 库：pip install openai") from e
     client = OpenAI(api_key=settings.get("api_key") or None, base_url=settings.get("base_url") or None, timeout=timeout)
     try:
-        r = client.chat.completions.create(model=settings.get("model") or "gpt-5", messages=[{"role": "user", "content": prompt}])
+        content = [{"type": "image_url", "image_url": {"url": f"data:{mt};base64,{b}"}} for mt, b in blocks]
+        content.append({"type": "text", "text": prompt})
+        r = client.chat.completions.create(model=settings.get("model") or "gpt-5",
+                                           messages=[{"role": "user", "content": content if blocks else prompt}])
     except AuthenticationError as e:
         raise AIError("API Key 无效，请在“设置”里检查") from e
     except APIConnectionError as e:

@@ -1,13 +1,14 @@
 """给 AI（和人）看的课件库总览、导出与自检。
 
   manifest()          整个课件库的结构：课程 → 课件 / 题库，加上单词本概况
+  （论文：papers.export_paper）
   export_deck(id)     一份课件的全部文字：每页标题、正文、演讲者备注、讲解、自己的标注
   export_vocab()      单词本（Markdown 表格）
   check()             自检：找出坏掉的引用（课件被删、课程不存在等）
 """
 import time
 
-from . import config, library, quiz, userdata
+from . import config, library, papers, quiz, userdata
 
 SCHEMA_VERSION = 2
 
@@ -38,6 +39,10 @@ def manifest() -> dict:
         "unassigned": {"decks": [deck_brief(d) for d in decks if d.get("course") not in known],
                        "quizzes": [quiz_brief(z) for z in quizzes if z.get("course") not in known]},
         "vocab": userdata.vocab_stats(),
+        "paper_folders": papers.list_folders(),
+        "papers": [{k: p[k] for k in ("id", "title", "folder", "pages", "brief", "brief_parts", "figs", "highlights", "pins")}
+                   | {"authors": p["meta"].get("authors", [])[:6], "year": p["meta"].get("year", ""), "note": p["note"][:300]}
+                   for p in papers.list_papers()],
     }
 
 

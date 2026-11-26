@@ -11,7 +11,7 @@ import urllib.parse
 import webbrowser
 from pathlib import Path
 
-from . import ai, config, dictionary, jobs, library, manifest, manual, quiz, studio, userdata
+from . import ai, config, dictionary, jobs, library, manifest, manual, papers, quiz, studio, userdata
 
 MAX_UPLOAD = 400 * 1024 * 1024
 mimetypes.add_type("application/javascript", ".js")
@@ -111,7 +111,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._static(config.LIBRARY, path[len("/library/"):])
             if path.startswith("/examples/"):
                 return self._static(config.EXAMPLES, path[len("/examples/"):])
-            if path in ("/", "/index.html") or path.startswith(("/deck/", "/quiz/", "/vocab", "/quizzes", "/course/")):
+            if path in ("/", "/index.html") or path.startswith(("/deck/", "/quiz/", "/vocab", "/quizzes", "/course/", "/paper")):
                 return self._static(config.WEB_DIR, "index.html")
             return self._static(config.WEB_DIR, path.lstrip("/"))
         except ApiError as e:
@@ -211,6 +211,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         if parts == ["manifest"] and method == "GET":
             return self._json(manifest.manifest())
+
+        # ---- 论文库（papers.py）
+        if parts and parts[0] in ("papers", "folders"):
+            return self._papers(method, parts, qs)
+        if parts == ["translate"] and method == "POST":
+            q = str(self._body_json().get("q") or "")
+            if not q.strip():
+                raise ApiError(400, "empty")
+            try:
+                return self._json(dictionary.translate(q))
+            except Exception as e:  # noqa: BLE001
+                return self._json({"error": str(e)}, 502)
 
         # ---- 讲解 → 题库 → 单词本（studio.py）
         if len(parts) == 3 and parts[0] == "studio" and parts[1] in ("quiz", "words") and method == "POST":
@@ -352,6 +364,94 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except Exception as e:  # noqa: BLE001
                 return self._json({"error": str(e)}, 502)
 
+        raise ApiError(404, "not found")
+
+    def _papers(self, method, parts, qs):
+        if parts == ["folders"]:
+            if method == "POST":
+                b = self._body_json()
+                return self._json(papers.add_folder(str(b.get("name", "")), str(b.get("color", ""))))
+            return self._json({"folders": papers.list_folders()})
+        if len(parts) == 2 and parts[0] == "folders":
+            fid = urllib.parse.unquote(parts[1])
+            if method == "PUT":
+                return self._json(papers.update_folder(fid, self._body_json()))
+            if method == "DELETE":
+                papers.delete_folder(fid)
+                return self._json({"ok": True})
+        if parts == ["papers"] and method == "GET":
+            return self._json({"papers": papers.list_papers(), "folders": papers.list_folders()})
+        if parts == ["papers", "import"] and method == "POST":
+            name = Path(urllib.parse.unquote(self.headers.get("X-Filename") or "paper.pdf")).name
+            folder = papers.check_folder(urllib.parse.unquote(self.headers.get("X-Folder") or "") or None)
+            if Path(name).suffix.lower() != ".pdf":
+                raise ApiError(400, "论文请导入 PDF 文件")
+            n = int(self.headers.get("Content-Length") or 0)
+            if not 0 < n <= MAX_UPLOAD:
+                raise ApiError(413, "文件为空或太大")
+            fd, tmp = tempfile.mkstemp(suffix=".pdf", prefix="lecta-paper-")
+            with os.fdopen(fd, "wb") as f:
+                left = n
+                while left:
+                    chunk = self.rfile.read(min(left, 1 << 20))
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    left -= len(chunk)
+            return self._json(jobs.public(jobs.start_paper(Path(tmp), original_name=name, folder=folder)))
+        if parts == ["papers", "fetch"] and method == "POST":
+            b = self._body_json()
+            url = str(b.get("url") or "").strip()
+            if not url:
+                raise ApiError(400, "请输入 arXiv 编号或论文链接")
+            return self._json(jobs.public(jobs.start_paper(url=url, folder=papers.check_folder(b.get("folder") or None))))
+        if len(parts) >= 2 and parts[0] == "papers":
+            pid = urllib.parse.unquote(parts[1])
+            rest = parts[2:]
+            if not rest and method == "GET":
+                return self._json(papers.get_paper(pid))
+            if not rest and method == "PUT":
+                return self._json(papers.update_paper(pid, self._body_json()))
+            if not rest and method == "DELETE":
+                papers.delete_paper(pid)
+                return self._json({"ok": True})
+            if rest == ["export"] and method == "GET":
+                return self._text(papers.export_paper(pid))
+            if rest == ["figures"] and method == "POST":         # 重新识别图表
+                papers.paper_dir(pid)
+                return self._json({"figs": papers.extract_figures(pid)})
+            if rest == ["brief"] and method == "DELETE":
+                papers.delete_brief(pid)
+                return self._json({"ok": True})
+            if len(rest) == 2 and rest[0] in ("brief", "ask") and method == "POST":
+                return self._paper_ai(pid, rest[0], rest[1], self._body_json())
+        raise ApiError(404, "not found")
+
+    def _paper_ai(self, pid, kind, action, b):
+        """POST /api/papers/<id>/brief|ask/<prompt|save|run>"""
+        papers.paper_dir(pid)
+        s = config.load_settings()
+        engine = ai.engine_of(s)
+        by = {"claude-cli": "Claude Code"}.get(engine, s.get("model") or engine)
+        try:
+            if kind == "brief":
+                if action == "prompt":
+                    return self._json({"prompt": papers.brief_prompt(pid)})
+                if action == "save":
+                    return self._json(papers.save_brief(str(b.get("text", "")), pid, by=str(b.get("by") or "网页版 AI")))
+                if action == "run":
+                    job = jobs.start_task("brief", papers.brief_prompt(pid), lambda text: papers.save_brief(text, pid, by=by),
+                                          images=papers.brief_images(pid), timeout=1500)
+                    return self._json(jobs.public(job))
+            else:
+                page = int(b["page"]) if str(b.get("page", "")).isdigit() else None
+                prompt = papers.ask_prompt(pid, str(b.get("text", "")), page)
+                if action == "prompt":
+                    return self._json({"prompt": prompt})
+                if action == "run":
+                    return self._json(jobs.public(jobs.start_task("ask", prompt, lambda text: {"answer": text.strip(), "by": by}, timeout=300)))
+        except (ValueError, KeyError) as e:
+            raise ApiError(400, str(e).strip("'")) from e
         raise ApiError(404, "not found")
 
     def _studio(self, kind, action, b):

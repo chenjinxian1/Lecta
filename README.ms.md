@@ -35,6 +35,7 @@ Lecta dibina untuk pelajar yang belajar dalam bahasa Inggeris sebagai bahasa ked
 - [Bahasa pembelajaran](#bahasa-pembelajaran)
 - [Buku perkataan dan ulang kaji](#buku-perkataan-dan-ulang-kaji)
 - [Kuiz](#kuiz)
+- [Membaca kertas penyelidikan](#membaca-kertas-penyelidikan)
 - [Untuk pembantu AI](#untuk-pembantu-ai)
 - [Baris arahan](#baris-arahan)
 - [Data, privasi dan hak cipta](#data-privasi-dan-hak-cipta)
@@ -54,6 +55,7 @@ Lecta dibina untuk pelajar yang belajar dalam bahasa Inggeris sebagai bahasa ked
 | 👆 **Klik mana-mana perkataan** | Klik perkataan pada slaid, atau pilih frasa, untuk melihat maknanya, sebutan IPA British dan audio British. Istilah yang ditakrifkan dalam kursus itu sendiri dipaparkan dahulu. Lapisan teks halimunan dijajarkan perkataan demi perkataan, jadi pilihan anda tepat dengan teks asal. |
 | 🖍️ **Tanda** | Bintangkan halaman penting, tulis nota halaman (disimpan secara automatik), dan serlahkan teks dalam empat warna dengan komen. |
 | 📝 **Kuiz** | Latihan aneka pilihan dengan penerangan, istilah utama dan pautan kembali ke slaid sumber. Tapis mengikut salah, pernah salah atau belum dijawab, dan lihat ketepatan mengikut bab. |
+| 📄 **Baca kertas penyelidikan** | Perpustakaan kertas yang berasingan, dengan folder. Tambah PDF atau pautan arXiv; pilih mana-mana ayat untuk menterjemahkannya, bertanya kepada AI, menyerlah dan mengulas, atau tampal nota di mana-mana pada halaman. Panduan AI menerangkan masalah, pendekatan dan rangka kerja, menterjemah Abstrak dan Pengenalan, menghuraikan kaedah bahagian demi bahagian bersama rajahnya, dan membaca rajah rangka kerja secara terperinci. |
 | 📚 **Buku perkataan** | Setiap perkataan yang disimpan mengingati tempat anda menjumpainya: slaid atau soalan mana, dan ayatnya. Cari, tapis mengikut kursus atau tahap, sunting dan eksport ke CSV. |
 | 🔁 **Ulang kaji berjarak** | Kad imbas (Space untuk terbalikkan, kekunci 1–4 untuk menilai). Kad yang dilupakan kembali dalam 10 minit; yang diingati dalam 1 → 2 → 4 → 7 → 15 → 30 → 60 hari. |
 | 🌏 **中文 / English** | Pilih bahasa pembelajaran semasa pelancaran pertama dan tukar bila-bila masa. Setiap perkataan menyimpan makna Cina dan definisi Inggeris. |
@@ -203,6 +205,21 @@ python -m kejian quiz kuiz-saya.json --course econ101
 
 Jawapan disimpan dalam pustaka, jadi penapis **Wrong** dan **Ever wrong** masih berguna minggu depan.
 
+## Membaca kertas penyelidikan
+
+Tab **Papers** ialah perpustakaan kertas penyelidikan, berasingan daripada kursus anda.
+
+- **Tambah**: seret masuk PDF, atau tampal ID atau pautan arXiv atau pautan PDF (`2504.15278`, `https://arxiv.org/abs/2504.15278`). Lecta membaca tajuk, pengarang dan abstrak, serta memotong setiap rajah dan jadual yang bernombor.
+- **Susun**: buat folder, seret kertas ke dalamnya, dan tulis nota pada setiap kertas.
+- **Baca**: kertas ditatal di sebelah kiri. Klik perkataan untuk mencarinya; pilih ayat untuk melihat terjemahannya, kemudian serlahkan, ulas, atau minta AI menerangkannya mengikut konteks. Tekan **N** untuk menampal nota di mana-mana pada halaman. Semua ulasan dan nota disenaraikan dalam **My notes**.
+- **Panduan AI**: di sebelah kanan: masalah yang diselesaikan, cara penyelesaian, rangka kerja keseluruhan, terjemahan penuh Abstrak dan Pengenalan, kaedah bahagian demi bahagian bersama rajah dan formula utama, bacaan mendalam rajah rangka kerja, rajah dan jadual lain, keputusan, batasan dan soalan untuk difikirkan.
+
+```bash
+python -m kejian paper add https://arxiv.org/abs/2504.15278 --folder "3D reconstruction"
+python -m kejian prompt paper <id-kertas> --out prompt.md
+python -m kejian save paper <id-kertas> --file reply.md
+```
+
 ## Untuk pembantu AI
 
 Buka Claude Code, Codex atau pembantu AI lain dalam folder ini. Ia membaca [`AGENTS.md`](AGENTS.md) (Claude Code memuatkannya melalui `CLAUDE.md`) dan boleh membuat keseluruhan kerja, tanpa kunci API:
@@ -244,6 +261,7 @@ python -m kejian vocab collect <id-dek|id-kuiz>          # istilah utama → buk
 python -m kejian vocab where "elasticity" --course econ101
 python -m kejian export <id-dek|id-kuiz|vocab> --out nota.md
 python -m kejian manifest
+python -m kejian paper add <pdf|id-arxiv|url> --folder NAMA   # juga: list, folders, move, note, figures
 python -m kejian config language en                      # bahasa pembelajaran: zh atau en
 python -m kejian doctor                                  # semak Python, kebergantungan, penukar PPT
 python -m kejian check                                  # semak pustaka

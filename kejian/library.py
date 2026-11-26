@@ -27,7 +27,15 @@ def _read(p: Path, default):
 def _write(p: Path, data):
     tmp = p.with_suffix(p.suffix + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    tmp.replace(p)
+    # Windows 上别的线程正在读这个文件时 replace 会被拒绝，稍等再试
+    for i in range(20):
+        try:
+            tmp.replace(p)
+            return
+        except PermissionError:
+            if i == 19:
+                raise
+            time.sleep(0.02 * (i + 1))
 
 
 def roots():
@@ -73,15 +81,19 @@ def summary(d: Path) -> dict:
         "example": is_readonly(d),
         "course": deck.get("course") or None,
         "marks": len(_read(d / "marks.json", {})),
+        "type": deck.get("type") or "deck",
     }
 
 
-def list_decks() -> list[dict]:
+def list_decks(papers: bool = False) -> list[dict]:
+    """课件列表。论文（deck.json 里 type=paper）也用同样的目录结构，但默认不算课件。"""
     out = []
     for root, _ in roots():
         for d in root.iterdir():
             if (d / "deck.json").is_file():
-                out.append(summary(d))
+                s = summary(d)
+                if (s["type"] == "paper") == papers:
+                    out.append(s)
     out.sort(key=lambda x: (x["example"], -max(x["opened"], x["created"])))
     return out
 

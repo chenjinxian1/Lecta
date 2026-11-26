@@ -74,7 +74,37 @@ python -m kejian vocab where "elasticity" --course econ101       # every slide a
 
 Each word keeps where it came from (deck page or quiz question, plus the original sentence). The web app underlines word-book words on the slides and lists, for every word, the other slides and questions in the same course where it appears.
 
-## 6. Help the user study
+## 6. Read research papers
+
+Papers live in their own library (the **Papers** tab), sorted into folders, apart from courses. Each paper keeps the user's note, highlights with comments, and sticky notes placed on the page.
+
+```bash
+python -m kejian paper add https://arxiv.org/abs/2504.15278 --folder "3D reconstruction"   # arXiv id / link / PDF link / local PDF
+python -m kejian paper list                     # ids, folders, whether a guide exists
+python -m kejian paper folders ["New folder"]   # list folders, or create one
+python -m kejian paper move <paper-id> "Robotics"     # "none" takes it out of its folder
+python -m kejian paper note <paper-id> "why I saved this"
+python -m kejian paper figures <paper-id>       # list (and re-detect) the cropped figures and tables
+```
+
+Write the reading guide (the right-hand "AI guide" panel):
+
+```bash
+python -m kejian prompt paper <paper-id> --out tmp-paper-prompt.md
+```
+
+1. Read the prompt file: the brief, the figure/table list (★ marks the likely framework figure), the paper text, and the paths of the PDF and of each cropped figure. **Look at the figure images**, above all the framework figure, before you write about them.
+2. Write the two ```json blocks it asks for: block 1 is the problem, solution, framework, a part-by-part reading of the framework figure, other figures, results, limitations and questions; block 2 is the full translation of the Abstract and Introduction and a detailed, section-by-section explanation of the method with its figures and key formulas.
+3. Refer to figures as `"2"` and tables as `"T1"`.
+4. Save it. You can save the two blocks separately; later saves fill in what is missing:
+
+```bash
+python -m kejian save paper <paper-id> --file tmp-paper-brief.md
+```
+
+`python -m kejian export <paper-id>` gives the paper's text with the user's note, highlights, comments and sticky notes, for questions like "what did I mark in this paper?".
+
+## 7. Help the user study
 
 | The user asks | Do this |
 |---|---|
@@ -85,7 +115,7 @@ Each word keeps where it came from (deck page or quiz question, plus the origina
 
 `python -m kejian manifest` prints the whole library as JSON, including `"language"`. Write in that language: see the table in AI_GUIDE.md §1.
 
-## 7. Rules
+## 8. Rules
 
 - Use the commands. If you must edit JSON in `library/` by hand, read [AI_GUIDE.md](AI_GUIDE.md) first, keep UTF-8, and run `python -m kejian check` afterwards.
 - Never delete the user's review history (`_vocab.json` `srs`, `_progress/`), marks or notes unless they ask.
@@ -98,5 +128,5 @@ Each word keeps where it came from (deck page or quiz question, plus the origina
 
 - Python standard library + PyMuPDF; frontend is plain JavaScript in `kejian/web/` with no build step.
 - Tests: `python -m unittest discover -s tests -v`
-- Map: `importer.py` (PPTX/PDF → pages, word boxes, notes) · `ai.py` (note generation engines) · `manual.py` (notes prompt and reply parsing) · `studio.py` (quiz and word prompts, linking words to slides and questions) · `quiz.py` · `userdata.py` (courses, word book, marks, progress) · `server.py` (HTTP API) · `__main__.py` (CLI)
+- Map: `importer.py` (PPTX/PDF → pages, word boxes, notes) · `ai.py` (note generation engines) · `manual.py` (notes prompt and reply parsing) · `studio.py` (quiz and word prompts, linking words to slides and questions) · `papers.py` (paper library, folders, figure cropping, reading-guide prompt and parsing) · `quiz.py` · `userdata.py` (courses, word book, marks, progress) · `server.py` (HTTP API) · `__main__.py` (CLI)
 - UI strings are written as `L('中文', 'English')`; keep both languages in sync.

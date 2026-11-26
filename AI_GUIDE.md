@@ -188,7 +188,54 @@ python -m kejian quiz 题库.json --course econ101             # 导入
 另一种方式：选择题 PPT（每页一题，题号写 `Q12`，选项 A–D，演讲者备注写 `Answer: B. …`）可以直接
 `python -m kejian quiz 练习.pptx --course econ101`，之后再补中文解析（直接编辑 `library/_quizzes/<题库ID>.json`）。
 
-## 6. 直接改文件时的规则
+## 6. 论文库
+
+论文和课件分开放：网页顶部的「论文」页，按文件夹收藏。每篇论文可以写备注、在论文上高亮 + 批注、贴便签，右边有 AI 解读（研究问题、解决思路、整体框架、摘要和引言全文翻译、方法逐节图文详解、框架图精读、实验结论等）。
+
+```bash
+python -m kejian paper add 2504.15278 --folder "3D 重建"     # arXiv 编号 / arXiv 链接 / PDF 链接 / 本地 PDF
+python -m kejian paper list [--json]
+python -m kejian paper folders ["新文件夹"]
+python -m kejian paper move <论文ID> <文件夹名或ID|none>
+python -m kejian paper note <论文ID> ["备注内容"]
+python -m kejian paper figures <论文ID>                       # 重新识别并裁剪图表
+python -m kejian prompt paper <论文ID> --out 提示词.md         # 解读提示词（含全文、图表清单、PDF 和图片路径）
+python -m kejian save paper <论文ID> --file 回复.md            # 保存两个 ```json 代码块；可以分两次存，后存的补上缺的
+python -m kejian export <论文ID>                               # 全文 + 备注 + 高亮批注 + 便签 + 解读摘要
+```
+
+论文的目录和课件一样（`deck.json`、`marks.json`、`pages/`、`source.pdf` …），另外：
+
+```
+library/
+  _papers.json                  论文文件夹 {"folders": [{id, name, color, created}]}
+  <论文ID>/
+    deck.json                   多了 "type": "paper"、"folder"、"note"（论文备注）、
+                                "meta" {authors, year, venue, arxiv, url, abstract}、"toc"（PDF 目录）
+    figs.json                   自动裁出来的图表 [{kind: "figure"|"table", id: "2", page, caption, rect, img: "figs/figure-2.png"}]
+    figs/                       图表图片（rect 是 PDF 坐标，72dpi）
+    brief.json                  AI 解读（格式见下）
+    marks.json                  和课件相同，另有便签 "pins": [{id, x, y, text, color, at}]（x、y 是页面坐标，和 hl 的 rects 一样）
+```
+
+`brief.json` 的字段（`python -m kejian prompt paper` 的提示词里有完整格式）：
+
+| 字段 | 内容 |
+|---|---|
+| `title`、`one_line` | 中文标题、一句话概括 |
+| `problem`、`solution` | `{summary, points: [...]}`：研究问题 / 解决思路 |
+| `framework` | `{summary, steps: [{name, input, does, output}]}`：从输入到输出的整体框架 |
+| `abstract` | 摘要全文翻译（段落数组） |
+| `introduction` | `[{page, text}]`：引言逐段翻译 |
+| `method` | `[{section, page, figures: ["5", "T1"], text, formulas: [{tex, meaning}]}]`：方法逐节详解，配图和关键公式 |
+| `figure` | 框架图精读 `{id, summary, parts: [{name, explain}], flow, design, details}` |
+| `figures` | 其他图表 `[{id, explain}]` |
+| `results`、`limitations`、`questions` | 字符串数组 |
+| `by`、`at` | 谁写的、什么时候（保存时自动填） |
+
+图用编号字符串 `"2"`，表用 `"T1"`（Table 1）。论文不出现在 `list_decks` / 课程里，`manifest` 里单独列在 `"papers"` 和 `"paper_folders"`。
+
+## 7. 直接改文件时的规则
 
 - 所有 JSON 用 UTF-8；改之前先读，改完运行 `python -m kejian check`。
 - 不要改 `pages/`、`thumbs/`、`words.json`（由导入程序生成）。
@@ -201,3 +248,7 @@ python -m kejian quiz 题库.json --course econ101             # 导入
   - `GET /api/vocab`、`POST /api/vocab/<单词>/review` `{"grade": "again|hard|good|easy"}`
   - `POST /api/studio/<quiz|words>/<prompt|save|run>` `{"decks": [...], "count", "focus", "pages", "text"}`：出题 / 挑生词的提示词、保存回复、（Claude Code / API 模式下）自动生成
   - `POST /api/vocab/collect` `{"deck": id}` 或 `{"quiz": id}`；`GET /api/vocab/where?course=`；`GET /api/decks/<id>/vocab`
+  - 论文：`GET /api/papers`（论文和文件夹）、`GET|PUT|DELETE /api/papers/<id>` `{"title", "folder", "note", "meta"}`、
+    `POST /api/papers/import`（请求体是 PDF，请求头 `X-Filename`、`X-Folder`）、`POST /api/papers/fetch` `{"url", "folder"}`、
+    `GET|POST /api/folders`、`PUT|DELETE /api/folders/<id>`、`POST /api/papers/<id>/<brief|ask>/<prompt|save|run>`、
+    `DELETE /api/papers/<id>/brief`、`POST /api/translate` `{"q"}`（划句翻译）

@@ -64,6 +64,11 @@ function srvMsg(m) {
   if (m === '正在转换为 PDF…') return 'Converting to PDF…';
   if (m === '正在读取 PDF…') return 'Reading PDF…';
   if (m === '导入完成') return 'Import finished';
+  if (m === '正在识别图表…') return 'Finding figures and tables…';
+  if (m === '正在读取 arXiv 信息…') return 'Reading arXiv details…';
+  if (m === '正在下载 PDF…') return 'Downloading the PDF…';
+  if ((x = m.match(/正在下载 PDF… (\d+)%/))) return `Downloading the PDF… ${x[1]}%`;
+  if (m === '这篇论文已经在论文库里了') return 'This paper is already in your library';
   if ((x = m.match(/正在处理第 (\d+) \/ (\d+) 页/))) return `Processing page ${x[1]} / ${x[2]}`;
   return m;
 }
@@ -114,7 +119,7 @@ let VSTAT = null;  // 单词本统计（导航上的待复习数字）
 function navHTML(active) {
   const due = VSTAT?.due || 0;
   const a = (k, href, ic, label, extra = '') => `<a href="${href}" class="${active === k ? 'on' : ''}">${icon(ic)}<span>${label}</span>${extra}</a>`;
-  return `<nav class="topnav">${a('home', '#/', 'book', L('课程', 'Courses'))}${a('quizzes', '#/quizzes', 'check', L('题库', 'Quizzes'))}${a('vocab', '#/vocab', 'cards', L('单词本', 'Words'), due ? `<em class="dot-n" title="${L('今天待复习', 'Due today')}">${due}</em>` : '')}</nav>`;
+  return `<nav class="topnav">${a('home', '#/', 'book', L('课程', 'Courses'))}${a('papers', '#/papers', 'paper', L('论文', 'Papers'))}${a('quizzes', '#/quizzes', 'check', L('题库', 'Quizzes'))}${a('vocab', '#/vocab', 'cards', L('单词本', 'Words'), due ? `<em class="dot-n" title="${L('今天待复习', 'Due today')}">${due}</em>` : '')}</nav>`;
 }
 function pageBar(active) {
   return `<header class="bar">${brandHTML()}${navHTML(active)}<span class="spacer"></span>
@@ -139,6 +144,8 @@ function route() {
   let m;
   if ((m = h.match(/^#\/deck\/([^/?]+)(?:\/(\d+))?/))) openReader(decodeURIComponent(m[1]), +(m[2] || 0));
   else if ((m = h.match(/^#\/quiz\/([^/?]+)(?:\/(\d+))?/))) openQuiz(decodeURIComponent(m[1]), +(m[2] || 0), qs.get('f'));
+  else if ((m = h.match(/^#\/paper\/([^/?]+)(?:\/(\d+))?/))) openPaper(decodeURIComponent(m[1]), +(m[2] || 0));
+  else if (h.startsWith('#/papers')) showPapers(qs.get('f') || '', qs.get('q') || '');
   else if (h.startsWith('#/quizzes')) showQuizzes();
   else if (h.startsWith('#/vocab/review')) openReview(qs.get('course') || '', qs.get('all') === '1');
   else if (h.startsWith('#/vocab')) showVocab(qs.get('course') || '');
@@ -280,10 +287,11 @@ async function renderHome() {
   });
 }
 // 拖到页面其它地方：导入到当前筛选的课程（没有筛选就是未分类）
-document.addEventListener('dragover', e => { if (!location.hash.startsWith('#/deck')) e.preventDefault(); });
+document.addEventListener('dragover', e => { if (!location.hash.startsWith('#/deck') && !location.hash.startsWith('#/paper/')) e.preventDefault(); });
 document.addEventListener('drop', e => {
   if (location.hash.startsWith('#/deck') || e.target.closest('section.course')) return;
   e.preventDefault();
+  if ($('#plist')) { [...(e.dataTransfer?.files || [])].forEach(f => importPaper(f, PL?.folder && PL.folder !== '-' ? PL.folder : null)); return; }
   if (!$('#home')) return;
   [...(e.dataTransfer?.files || [])].forEach(f => startImport(f, HOME?.cf || null));
 });
@@ -785,6 +793,7 @@ async function openReader(id, page) {
     [deck, marks, courses] = await Promise.all([api('decks/' + encodeURIComponent(id)), api(`decks/${encodeURIComponent(id)}/marks`).catch(() => ({})),
       getCourses().catch(() => []), loadVocab().catch(() => [])]);
   } catch (e) { app.innerHTML += `<main class="lib"><p>${esc(e.message)}</p><a class="btn" href="#/">${L('返回课程', 'Back to courses')}</a></main>`; return; }
+  if (deck.type === 'paper') { location.replace(`#/paper/${encodeURIComponent(id)}${page ? '/' + page : ''}`); return; }
   const words = await fetch(deck.base + 'words.json').then(r => r.json()).catch(() => []);
   const N = deck.pages.length;
   const course = courses.find(c => c.id === deck.course);
@@ -1223,6 +1232,7 @@ function tlText(range) {
   }).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
 }
 function addHighlight(hl, color) {
+  if (P && hl.page) return pAddHighlight(hl, color);
   if (!R) return;
   pageMarks(R.cur).hl.push({ id: 'h' + Date.now().toString(36), text: hl.text, rects: hl.rects, color, note: '', at: Date.now() / 1000 });
   saveMarks(R.cur);
@@ -1833,6 +1843,7 @@ function pageCtx(w) {
 }
 function srcEntry(w) {
   if (QZ) return quizSrc(w);
+  if (P) return { course: null, src: [{ kind: 'deck', id: P.id, page: P.lastCtx?.page || P.cur, ctx: P.lastCtx?.ctx || '' }] };
   if (R) return { course: R.deck.course || null, src: [{ kind: 'deck', id: R.id, page: R.cur, ctx: pageCtx(w) }] };
   return {};
 }
@@ -1956,14 +1967,15 @@ async function loadNames() {
       g.decks.forEach(d => { decks[d.id] = d.title; });
       g.quizzes.forEach(z => { quizzes[z.id] = z.title; });
     }
-    NAMES = { decks, quizzes, courses: m.courses.map(({ decks: _d, quizzes: _q, ...c }) => c) };
+    (m.papers || []).forEach(p => { decks[p.id] = p.title; });
+    NAMES = { decks, quizzes, papers: new Set((m.papers || []).map(p => p.id)), courses: m.courses.map(({ decks: _d, quizzes: _q, ...c }) => c) };
   } catch {}
   return NAMES;
 }
 function srcChip(s) {
   if (s.kind === 'deck') {
     const t = NAMES.decks[s.id];
-    return `<a class="src" href="#/deck/${encodeURIComponent(s.id)}/${s.page || 1}" data-back title="${esc(t || s.id)}">${icon('book')}${esc(shortTitle(t || s.id))}${s.page ? L(` · 第 ${s.page} 页`, ` · p.${s.page}`) : ''}</a>`;
+    return `<a class="src" href="#/${NAMES.papers?.has(s.id) ? 'paper' : 'deck'}/${encodeURIComponent(s.id)}/${s.page || 1}" data-back title="${esc(t || s.id)}">${icon(NAMES.papers?.has(s.id) ? 'paper' : 'book')}${esc(shortTitle(t || s.id))}${s.page ? L(` · 第 ${s.page} 页`, ` · p.${s.page}`) : ''}</a>`;
   }
   const t = NAMES.quizzes[s.id];
   return `<a class="src" href="#/quiz/${encodeURIComponent(s.id)}/${s.n || ''}" data-back title="${esc(t || s.id)}">${icon('check')}${esc(shortTitle(t || s.id))}${s.n ? L(` · 第 ${s.n} 题`, ` · Q${s.n}`) : ''}</a>`;
@@ -2309,6 +2321,935 @@ function renderVocab() {
   };
 }
 
+/* ================================================================ 论文库 */
+const pendingPapers = new Map();   // key -> {id, name, job, folder}
+let PL = null;                     // 论文库页面状态
+const authorsText = (a, n = 4) => !a?.length ? '' : a.slice(0, n).join(', ') + (a.length > n ? L(' 等', ' et al.') : '');
+
+async function showPapers(folder, q) {
+  document.body.classList.remove('reading');
+  document.title = L('论文库', 'Papers') + ' · ' + APP();
+  $('#app').innerHTML = pageBar('papers') + `
+    <main class="lib papers-lib">
+      <div class="lib-head">
+        <div><h1>${L('论文库', 'Papers')}</h1><p>${L('导入 PDF 或填 arXiv 编号，按文件夹收藏。读的时候划词、划句就能翻译，AI 帮你讲清楚问题、方法和框架图。', 'Import a PDF or an arXiv ID and keep papers in folders. Select any word or sentence to translate it, and let AI explain the problem, the method and the framework figure.')}</p></div>
+        <div class="row"><button class="btn" id="pAdd">${icon('link')}${L('arXiv / 链接', 'arXiv / link')}</button>
+          <button class="btn primary" id="pImport">${icon('upload')}${L('导入 PDF', 'Import PDF')}</button></div>
+      </div>
+      <div class="plib">
+        <aside class="folders" id="folders"></aside>
+        <section class="plist-wrap">
+          <div class="ptools"><label class="psearch">${icon('search')}<input type="search" id="pq" placeholder="${L('搜索标题、作者、备注', 'Search titles, authors, notes')}"></label>
+            <select id="psort"><option value="opened">${L('最近打开', 'Recently opened')}</option><option value="created">${L('最近添加', 'Recently added')}</option><option value="title">${L('标题', 'Title')}</option><option value="year">${L('年份', 'Year')}</option></select></div>
+          <div id="plist"></div>
+        </section>
+      </div>
+      <input type="file" id="pfile" accept=".pdf" multiple hidden>
+    </main>`;
+  wireBar();
+  PL = { folder: folder || '', q: q || '', sort: store.get('papers.sort', 'opened'), data: null };
+  $('#pq').value = PL.q; $('#psort').value = PL.sort;
+  $('#pq').oninput = () => { PL.q = $('#pq').value; renderPaperList(); };
+  $('#psort').onchange = () => { PL.sort = $('#psort').value; store.set('papers.sort', PL.sort); renderPaperList(); };
+  $('#pImport').onclick = () => $('#pfile').click();
+  $('#pAdd').onclick = () => addPaperDialog();
+  $('#pfile').onchange = e => { [...e.target.files].forEach(f => importPaper(f, PL.folder && PL.folder !== '-' ? PL.folder : null)); e.target.value = ''; };
+  await loadPapers();
+  refreshNav('papers');
+  const t = setInterval(() => { if (pendingPapers.size) renderPaperList(); }, 1200);
+  cleanup = () => clearInterval(t);
+}
+async function loadPapers() {
+  try { PL.data = await api('papers'); } catch (e) { toast(e.message); return; }
+  if (PL.folder && PL.folder !== '-' && !PL.data.folders.some(f => f.id === PL.folder)) PL.folder = '';
+  renderFolders(); renderPaperList();
+}
+const folderOf = id => (PL?.data?.folders || []).find(f => f.id === id);
+function renderFolders() {
+  const el = $('#folders'); if (!el || !PL.data) return;
+  const ps = PL.data.papers, cnt = id => ps.filter(p => (p.folder || '') === id).length;
+  const item = (id, label, n, color) => `<div class="fitem ${PL.folder === id ? 'on' : ''}" data-f="${esc(id)}" role="button" tabindex="0">
+      ${color ? `<i style="background:${esc(color)}"></i>` : icon(id === '' ? 'paper' : 'folder')}<span class="fname">${esc(label)}</span><em>${n}</em>
+      ${color ? `<button class="ibtn" data-fedit="${esc(id)}" title="${L('文件夹设置', 'Folder settings')}">${icon('dots')}</button>` : ''}</div>`;
+  el.innerHTML = item('', L('全部论文', 'All papers'), ps.length) + item('-', L('未归档', 'Unfiled'), cnt('')) +
+    `<div class="fhead"><span>${L('文件夹', 'Folders')}</span><button class="ibtn" id="newFolder" title="${L('新建文件夹', 'New folder')}">${icon('plus')}</button></div>` +
+    PL.data.folders.map(f => item(f.id, f.name, cnt(f.id), f.color)).join('') +
+    (PL.data.folders.length ? '' : `<p class="muted small fhint">${L('新建文件夹，按课题、项目或会议整理论文。把论文拖到文件夹上就能移动。', 'Create folders by topic, project or venue. Drag a paper onto a folder to move it.')}</p>`);
+  el.onclick = e => {
+    const ed = e.target.closest('[data-fedit]');
+    if (ed) { e.stopPropagation(); return folderDialog(folderOf(ed.dataset.fedit)); }
+    if (e.target.closest('#newFolder')) return folderDialog();
+    const f = e.target.closest('[data-f]'); if (!f) return;
+    PL.folder = f.dataset.f;
+    history.replaceState(null, '', '#/papers' + (PL.folder ? '?f=' + encodeURIComponent(PL.folder) : ''));
+    renderFolders(); renderPaperList();
+  };
+  // 把论文拖到文件夹上
+  $$('[data-f]', el).forEach(f => {
+    f.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('text/x-paper')) { e.preventDefault(); f.classList.add('over'); } });
+    f.addEventListener('dragleave', () => f.classList.remove('over'));
+    f.addEventListener('drop', async e => {
+      const pid = e.dataTransfer.getData('text/x-paper'); f.classList.remove('over');
+      if (!pid || f.dataset.f === '') return;
+      e.preventDefault(); e.stopPropagation();
+      const to = f.dataset.f === '-' ? null : f.dataset.f;
+      try { await api('papers/' + encodeURIComponent(pid), { method: 'PUT', json: { folder: to } }); } catch (er) { return toast(er.message); }
+      toast(to ? L(`已移到「${folderOf(to)?.name}」`, `Moved to “${folderOf(to)?.name}”`) : L('已移出文件夹', 'Moved out of the folder'));
+      loadPapers();
+    });
+  });
+}
+function filteredPapers() {
+  let ps = (PL.data?.papers || []).filter(p => !PL.folder || (PL.folder === '-' ? !p.folder : p.folder === PL.folder));
+  const q = PL.q.trim().toLowerCase();
+  if (q) ps = ps.filter(p => [p.title, p.note, (p.meta.authors || []).join(' '), p.meta.venue, p.meta.year, p.meta.arxiv].join(' ').toLowerCase().includes(q));
+  const by = { opened: (a, b) => Math.max(b.opened, b.created) - Math.max(a.opened, a.created), created: (a, b) => b.created - a.created,
+    title: (a, b) => a.title.localeCompare(b.title), year: (a, b) => (b.meta.year || '').localeCompare(a.meta.year || '') }[PL.sort];
+  return ps.sort(by);
+}
+function paperRow(p) {
+  const href = `#/paper/${encodeURIComponent(p.id)}`, f = folderOf(p.folder), m = p.meta || {};
+  const marks = p.highlights + p.pins;
+  return `<article class="prow" draggable="true" data-pid="${esc(p.id)}">
+    <a class="pthumb" href="${href}" style="background-image:url('${p.base}thumbs/001.jpg')" aria-label="${esc(p.title)}" draggable="false"></a>
+    <div class="pbody">
+      <h3><a href="${href}" draggable="false">${esc(p.title)}</a></h3>
+      <div class="pauth">${esc([authorsText(m.authors), m.year, m.venue && m.venue.length < 60 ? m.venue : ''].filter(Boolean).join(' · ')) || `<span class="muted">${esc(p.source)}</span>`}</div>
+      <div class="pmeta">
+        ${f ? `<span class="fchip" style="--fc:${esc(f.color)}"><i></i>${esc(f.name)}</span>` : ''}
+        <span class="bchip ${p.brief ? 'on' : ''}">${icon('spark')}${p.brief ? L('已解读', 'Explained') : L('未解读', 'Not explained')}</span>
+        <span>${L(`${p.pages} 页`, `${p.pages} pages`)}${p.figs ? L(` · ${p.figs} 个图表`, ` · ${p.figs} figures`) : ''}</span>
+        ${marks ? `<span>${icon('note')}${L(`${marks} 处批注`, pl(marks, 'mark'))}</span>` : ''}
+        ${m.url ? `<a href="${esc(m.url)}" target="_blank" rel="noopener" class="plink" draggable="false">${icon('link')}${m.arxiv ? 'arXiv ' + esc(m.arxiv) : L('原文', 'Source')}</a>` : ''}
+      </div>
+      <div class="pnote ${p.note ? '' : 'empty'}" data-pnote="${esc(p.id)}" title="${L('点击编辑备注', 'Click to edit the note')}">${p.note ? esc(p.note) : L('+ 添加备注', '+ Add a note')}</div>
+    </div>
+    <button class="ibtn" data-pmenu="${esc(p.id)}" title="${L('论文设置', 'Paper settings')}">${icon('dots')}</button></article>`;
+}
+function pendingPaperRows() {
+  return [...pendingPapers.values()].map(p => {
+    const j = p.job || {}, failed = j.status === 'error', pct = j.total ? Math.round(j.done / j.total * 100) : 4;
+    return `<article class="prow pending ${failed ? 'failed' : ''}"><div class="pthumb"></div><div class="pbody"><h3>${esc(p.name)}</h3>
+      <div class="pauth">${esc(srvMsg(failed ? j.message : (j.message || L('正在上传…', 'Uploading…'))))}</div>
+      ${failed ? `<div class="row"><button class="btn sm" data-pdismiss="${esc(p.id)}">${L('知道了', 'OK')}</button></div>` : `<span class="meter"><i style="width:${pct}%"></i></span>`}</div></article>`;
+  }).join('');
+}
+function renderPaperList() {
+  const el = $('#plist'); if (!el || !PL.data) return;
+  const ps = filteredPapers(), pend = pendingPaperRows();
+  const all = PL.data.papers.length;
+  el.innerHTML = pend + ps.map(paperRow).join('') + (!ps.length && !pend ? (all && (PL.q || PL.folder)
+    ? `<p class="vocab-empty">${PL.q ? L('没有找到匹配的论文。', 'No papers match.') : L('这个文件夹还是空的。把论文拖进来，或者在论文的 ⋯ 菜单里移动。', 'This folder is empty. Drag papers onto it, or move them from their ⋯ menu.')}</p>`
+    : `<button class="drop" id="pDrop"><span class="big">${icon('paper')}</span><b>${L('导入第一篇论文', 'Add your first paper')}</b>
+        <span>${L('把 PDF 拖到这里，或者点击选择文件', 'Drop a PDF here, or click to choose a file')}</span>
+        <small>${L('也可以点右上角「arXiv / 链接」，比如填 2504.15278', 'Or use “arXiv / link” above, e.g. 2504.15278')}</small></button>`) : '');
+  $('#pDrop') && ($('#pDrop').onclick = () => $('#pfile').click());
+  $$('[data-pdismiss]', el).forEach(b => b.onclick = () => { pendingPapers.delete(b.dataset.pdismiss); renderPaperList(); });
+  $$('[data-pmenu]', el).forEach(b => b.onclick = e => { e.preventDefault(); paperDialog(PL.data.papers.find(p => p.id === b.dataset.pmenu)); });
+  $$('[data-pnote]', el).forEach(n => n.onclick = () => editRowNote(n));
+  $$('.prow[draggable]', el).forEach(r => r.addEventListener('dragstart', e => { e.dataTransfer.setData('text/x-paper', r.dataset.pid); e.dataTransfer.effectAllowed = 'move'; }));
+}
+function editRowNote(n) {
+  if (n.querySelector('textarea')) return;
+  const p = PL.data.papers.find(x => x.id === n.dataset.pnote); if (!p) return;
+  n.classList.remove('empty');
+  n.innerHTML = `<textarea rows="3" placeholder="${L('为什么收藏这篇？读到哪了？和你的课题有什么关系？', 'Why you saved it, how far you got, how it relates to your work…')}">${esc(p.note)}</textarea>
+    <div class="row"><span class="muted small">${L('Ctrl+Enter 保存 · Esc 取消', 'Ctrl+Enter to save · Esc to cancel')}</span><span class="spacer"></span><button class="btn sm" data-x>${L('取消', 'Cancel')}</button><button class="btn sm primary" data-ok>${L('保存', 'Save')}</button></div>`;
+  const ta = $('textarea', n); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+  const save = async () => {
+    try { await api('papers/' + encodeURIComponent(p.id), { method: 'PUT', json: { note: ta.value } }); p.note = ta.value.trim() ? ta.value : ''; } catch (e) { toast(e.message); }
+    renderPaperList();
+  };
+  $('[data-ok]', n).onclick = e => { e.stopPropagation(); save(); };
+  $('[data-x]', n).onclick = e => { e.stopPropagation(); renderPaperList(); };
+  ta.onkeydown = e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) save(); if (e.key === 'Escape') renderPaperList(); };
+  n.onclick = null;
+}
+function watchPaperJob(key, job, open) {
+  pendingPapers.get(key).job = job;
+  pollJob(job.id, j => {
+    const p = pendingPapers.get(key); if (!p) return;
+    p.job = j;
+    if (j.status === 'done') {
+      pendingPapers.delete(key);
+      if ($('#plist')) loadPapers();
+      const go = () => location.hash = `#/paper/${encodeURIComponent(j.result)}`;
+      if (j.existing) { toast(L('这篇论文已经在论文库里了', 'This paper is already in your library'), { label: L('打开', 'Open'), fn: go }); return; }
+      toast(L(`《${j.name || p.name}》已导入`, `“${j.name || p.name}” imported`), { label: L('打开', 'Open'), fn: go });
+      if (open) go();
+    } else if (j.status === 'error' && $('#plist')) renderPaperList();
+  });
+}
+async function importPaper(file, folder) {
+  if (!/\.pdf$/i.test(file.name)) return toast(L(`论文请导入 PDF：${file.name}`, `Papers must be PDFs: ${file.name}`));
+  const key = 'pp-' + Math.random().toString(36).slice(2);
+  pendingPapers.set(key, { id: key, name: file.name, folder, job: { message: L('正在上传…', 'Uploading…') } });
+  renderPaperList();
+  try {
+    const headers = { 'X-Filename': encodeURIComponent(file.name) };
+    if (folder) headers['X-Folder'] = encodeURIComponent(folder);
+    watchPaperJob(key, await api('papers/import', { method: 'POST', body: file, headers }));
+  } catch (e) { pendingPapers.get(key).job = { status: 'error', message: e.message }; renderPaperList(); }
+}
+function folderSelect(cur, id = 'pFolder') {
+  return `<select id="${id}"><option value="">${L('未归档', 'Unfiled')}</option>${(PL?.data?.folders || []).map(f => `<option value="${esc(f.id)}" ${f.id === cur ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}</select>`;
+}
+async function ensureFolders() { if (!PL?.data) { PL = PL || { folder: '', q: '', sort: 'opened' }; try { PL.data = await api('papers'); } catch {} } }
+async function addPaperDialog() {
+  await ensureFolders();
+  const dlg = $('#dlg');
+  dlg.innerHTML = `<form method="dialog"><div class="dlg-head"><h2>${L('从 arXiv / 链接添加论文', 'Add a paper from arXiv or a link')}</h2><button class="ibtn" value="cancel">${icon('x')}</button></div>
+    <div class="dlg-body">
+      <label class="field"><span>${L('arXiv 编号或链接', 'arXiv ID or link')}</span><input type="text" id="pUrl" placeholder="2504.15278  ·  https://arxiv.org/abs/2504.15278  ·  https://…/paper.pdf" autofocus>
+        <small>${L('arXiv 论文会自动带上标题、作者、摘要。其它网站请填 PDF 的直接下载链接。', 'arXiv papers come with title, authors and abstract. For other sites, use a direct link to the PDF.')}</small></label>
+      <label class="field"><span>${L('放进文件夹', 'Folder')}</span>${folderSelect(PL.folder && PL.folder !== '-' ? PL.folder : '')}</label>
+      <div class="test-msg" id="pMsg"></div></div>
+    <div class="dlg-foot"><span class="spacer"></span><button class="btn" value="cancel">${L('取消', 'Cancel')}</button><button class="btn primary" id="pGo" type="submit" value="ok">${L('添加', 'Add')}</button></div></form>`;
+  $('#pGo').onclick = async e => {
+    e.preventDefault();
+    const url = $('#pUrl').value.trim(), folder = $('#pFolder').value || null;
+    if (!url) return;
+    try {
+      const job = await api('papers/fetch', { method: 'POST', json: { url, folder } });
+      const key = 'pp-' + Math.random().toString(36).slice(2);
+      pendingPapers.set(key, { id: key, name: url, folder, job });
+      dlg.close(); renderPaperList();
+      watchPaperJob(key, job);
+    } catch (er) { $('#pMsg').className = 'test-msg bad'; $('#pMsg').textContent = er.message; }
+  };
+  dlg.showModal();
+}
+async function folderDialog(f) {
+  const dlg = $('#dlg');
+  let color = f?.color || SWATCHES[(PL?.data?.folders.length || 0) % SWATCHES.length];
+  dlg.innerHTML = `<form method="dialog"><div class="dlg-head"><h2>${f ? L('文件夹设置', 'Folder settings') : L('新建文件夹', 'New folder')}</h2><button class="ibtn" value="cancel">${icon('x')}</button></div>
+    <div class="dlg-body">
+      <label class="field"><span>${L('名称', 'Name')}</span><input type="text" id="fName" value="${esc(f?.name || '')}" placeholder="${L('例如：3D 重建、毕业论文、CVPR 2025', 'e.g. 3D reconstruction, Thesis, CVPR 2025')}" autofocus></label>
+      <div class="field"><span>${L('颜色', 'Colour')}</span><div class="swatches">${SWATCHES.map(c => `<button type="button" class="sw ${c === color ? 'on' : ''}" data-c="${c}" style="background:${c}"></button>`).join('')}</div></div>
+      ${f ? `<p class="muted small">${L('删除文件夹不会删除论文，里面的论文会回到“未归档”。', 'Deleting a folder keeps its papers; they become unfiled.')}</p>` : ''}</div>
+    <div class="dlg-foot">${f ? `<button class="btn ghost danger" type="button" id="fDel">${L('删除文件夹', 'Delete folder')}</button>` : ''}<span class="spacer"></span>
+      <button class="btn" value="cancel">${L('取消', 'Cancel')}</button><button class="btn primary" id="fOk" value="ok">${L('保存', 'Save')}</button></div></form>`;
+  $$('.sw', dlg).forEach(b => b.onclick = () => { color = b.dataset.c; $$('.sw', dlg).forEach(x => x.classList.toggle('on', x === b)); });
+  $('#fOk').onclick = async e => {
+    e.preventDefault();
+    const name = $('#fName').value.trim(); if (!name) return $('#fName').focus();
+    try {
+      const r = f ? await api('folders/' + encodeURIComponent(f.id), { method: 'PUT', json: { name, color } }) : await api('folders', { method: 'POST', json: { name, color } });
+      dlg.close();
+      if (PL && $('#plist')) { if (!f) PL.folder = r.id; loadPapers(); }
+      if (P) { P.folders = (await api('papers')).folders; renderPMarks(); }
+    } catch (er) { toast(er.message); }
+  };
+  if ($('#fDel')) $('#fDel').onclick = async () => {
+    if (!confirm(L(`删除文件夹「${f.name}」？里面的论文会回到“未归档”。`, `Delete the folder “${f.name}”? Its papers become unfiled.`))) return;
+    try { await api('folders/' + encodeURIComponent(f.id), { method: 'DELETE' }); } catch (er) { return toast(er.message); }
+    dlg.close(); if (PL.folder === f.id) PL.folder = ''; loadPapers();
+  };
+  dlg.showModal();
+}
+async function paperDialog(p, after) {
+  await ensureFolders();
+  const dlg = $('#dlg'), m = p.meta || {};
+  dlg.innerHTML = `<form method="dialog"><div class="dlg-head"><h2>${L('论文信息', 'Paper details')}</h2><button class="ibtn" value="cancel">${icon('x')}</button></div>
+    <div class="dlg-body">
+      <label class="field"><span>${L('标题', 'Title')}</span><input type="text" id="eTitle" value="${esc(p.title)}"></label>
+      <label class="field"><span>${L('作者', 'Authors')} <small>${L('用逗号分隔', 'comma-separated')}</small></span><input type="text" id="eAuth" value="${esc((m.authors || []).join(', '))}"></label>
+      <div class="two"><label class="field"><span>${L('年份', 'Year')}</span><input type="text" id="eYear" value="${esc(m.year || '')}"></label>
+        <label class="field"><span>${L('发表在', 'Venue')}</span><input type="text" id="eVenue" value="${esc(m.venue || '')}" placeholder="CVPR 2025"></label></div>
+      <div class="two"><label class="field"><span>${L('文件夹', 'Folder')}</span>${folderSelect(p.folder, 'eFolder')}</label>
+        <label class="field"><span>${L('链接', 'Link')}</span><input type="text" id="eUrl" value="${esc(m.url || '')}"></label></div>
+      <label class="field"><span>${L('备注', 'Note')}</span><textarea id="eNote" rows="4" placeholder="${L('为什么收藏这篇？读到哪了？和你的课题有什么关系？', 'Why you saved it, how far you got, how it relates to your work…')}">${esc(p.note || '')}</textarea></label>
+    </div>
+    <div class="dlg-foot"><button class="btn ghost danger" type="button" id="eDel">${icon('trash')}${L('删除', 'Delete')}</button>
+      <button class="btn ghost" type="button" id="eCopy">${icon('copy')}${L('复制给 AI', 'Copy for AI')}</button><span class="spacer"></span>
+      <button class="btn" value="cancel">${L('取消', 'Cancel')}</button><button class="btn primary" id="eOk" value="ok">${L('保存', 'Save')}</button></div></form>`;
+  $('#eOk').onclick = async e => {
+    e.preventDefault();
+    try {
+      await api('papers/' + encodeURIComponent(p.id), { method: 'PUT', json: { title: $('#eTitle').value, folder: $('#eFolder').value || null, note: $('#eNote').value,
+        meta: { authors: $('#eAuth').value, year: $('#eYear').value, venue: $('#eVenue').value, url: $('#eUrl').value } } });
+      dlg.close(); toast(L('已保存', 'Saved'));
+      if ($('#plist')) loadPapers();
+      after?.();
+    } catch (er) { toast(er.message); }
+  };
+  $('#eCopy').onclick = () => copyExport(`papers/${encodeURIComponent(p.id)}/export`, L('论文内容（含解读和批注）', 'the paper with its notes and marks'));
+  $('#eDel').onclick = async () => {
+    if (!confirm(L(`删除《${p.title}》？论文、AI 解读和所有批注都会删除，无法恢复。`, `Delete “${p.title}”? The paper, its AI guide and all your marks will be deleted. This can’t be undone.`))) return;
+    try { await api('papers/' + encodeURIComponent(p.id), { method: 'DELETE' }); } catch (er) { return toast(er.message); }
+    dlg.close(); toast(L('已删除', 'Deleted'));
+    if ($('#plist')) loadPapers(); else location.hash = '#/papers';
+  };
+  dlg.showModal();
+}
+
+/* ================================================================ 论文阅读器 */
+let P = null;  // 当前论文
+
+async function openPaper(id, page) {
+  document.body.classList.add('reading');
+  const app = $('#app');
+  app.innerHTML = `<header class="bar">${brandHTML()}<div class="crumb"><span class="muted">/</span><b>…</b></div></header>`;
+  let paper, marks = {}, lib = { folders: [] };
+  try {
+    [paper, marks, lib] = await Promise.all([api('papers/' + encodeURIComponent(id)), api(`decks/${encodeURIComponent(id)}/marks`).catch(() => ({})),
+      api('papers').catch(() => ({ folders: [] })), loadVocab().catch(() => [])]);
+  } catch (e) { app.innerHTML += `<main class="lib"><p>${esc(e.message)}</p><a class="btn" href="#/papers">${L('返回论文库', 'Back to papers')}</a></main>`; return; }
+  const words = await fetch(paper.base + 'words.json').then(r => r.json()).catch(() => []);
+  const N = paper.pages.length;
+  P = { id, paper, words, N, cur: Math.min(Math.max(1, page || store.get('page.' + id, 1)), N), marks: marks || {}, folders: lib.folders || [],
+        brief: paper.brief_data || {}, figs: paper.figs_list || [], tab: store.get('paper.tab', 'brief'), built: new Set(), pinMode: false,
+        settings: null, job: null, noteTimer: null };
+  api('settings').then(s => { if (P?.id === id) P.settings = s; }).catch(() => {});
+  document.title = paper.title + ' · ' + APP();
+  const f = P.folders.find(x => x.id === paper.folder);
+  const toc = (paper.toc || []).filter(t => t[0] <= 2);
+  app.innerHTML = `
+    <header class="bar">${brandHTML()}
+      <div class="crumb"><span class="muted">/</span><a href="#/papers" class="ccrumb">${L('论文库', 'Papers')}</a><span class="muted">/</span>
+        ${f ? `<a href="#/papers?f=${encodeURIComponent(f.id)}" class="ccrumb" style="--cc:${esc(f.color)}">${esc(f.name)}</a><span class="muted">/</span>` : ''}<b title="${esc(paper.title)}">${esc(paper.title)}</b></div>
+      <div class="progress"><i id="bar"></i></div>
+      <div class="tools">
+        ${toc.length ? `<select class="chip-sel" id="pToc" title="${L('跳到章节', 'Jump to a section')}"><option value="">${L('目录', 'Contents')}</option>${toc.map(t => `<option value="${t[2]}">${t[0] > 1 ? '　' : ''}${esc(t[1].slice(0, 60))}</option>`).join('')}</select>` : ''}
+        <span class="pageno" id="pageNo"></span>
+        <button class="chip-btn" id="pinBtn" title="${L('在论文上贴便签（N）', 'Stick a note on the paper (N)')}">${icon('note')}<span class="lbl">${L('便签', 'Note')}</span></button>
+        <button class="chip-btn" id="briefBtn" title="${L('AI 解读这篇论文', 'Explain this paper with AI')}">${icon('spark')}<span class="lbl">${L('AI 解读', 'AI guide')}</span></button>
+        <button class="chip-btn" id="autoSpeak" title="${L('划词后自动播放英式发音', 'Play British pronunciation after selecting a word')}">${icon('speak')}</button>
+        ${langBtnHTML()}
+        <button class="chip-btn" id="setBtn" title="${L('AI 设置', 'AI settings')}">${icon('gear')}</button>
+        <button class="chip-btn" id="themeBtn" title="${L('切换深浅色', 'Light / dark')}">${icon('moon')}</button>
+      </div>
+    </header>
+    <main class="reader paper-reader" id="reader">
+      <section class="left"><div class="pscroll" id="pscroll">${paper.pages.map(p => `<div class="ppage" data-n="${p.n}" style="aspect-ratio:${p.w} / ${p.h}">
+        <img alt="" draggable="false"><div class="hl"></div><div class="tl"></div><div class="pins"></div><em class="pnum">${p.n}</em></div>`).join('')}</div></section>
+      <div class="split" id="split" title="${L('拖动调整宽度', 'Drag to resize')}"></div>
+      <aside class="panel">
+        <div class="tabs">
+          <button data-tab="brief">${L('AI 解读', 'AI guide')}</button>
+          <button data-tab="pmarks">${L('我的批注', 'My notes')}<span class="count" id="mcount">0</span></button>
+          <button data-tab="figs">${L('图表', 'Figures')}<span class="count">${P.figs.length}</span></button>
+        </div>
+        <div id="jobbar"></div>
+        <div class="pane" id="brief"></div>
+        <div class="pane" id="pmarks" hidden></div>
+        <div class="pane" id="figs" hidden></div>
+      </aside>
+    </main>`;
+  $('#setBtn').onclick = openSettings;
+  $('#themeBtn').onclick = toggleTheme;
+  $('#langBtn').onclick = () => switchLang();
+  $('#briefBtn').onclick = () => briefDialog();
+  $('#pinBtn').onclick = () => setPinMode(!P.pinMode);
+  $('#pToc') && ($('#pToc').onchange = e => { if (e.target.value) pGo(+e.target.value); e.target.value = ''; });
+  setupAutoSpeak();
+  setupSplit();
+  $$('.tabs [data-tab]').forEach(b => b.onclick = () => { pFlushNote(); pShowTab(b.dataset.tab); });
+  $('#brief').addEventListener('click', onBriefClick);
+  $('#figs').addEventListener('click', onBriefClick);
+  $('#pmarks').addEventListener('click', onPMarksClick);
+  $('#pmarks').addEventListener('input', onPMarksInput);
+  $('#pmarks').addEventListener('change', onPMarksChange);
+  const sc = $('#pscroll');
+  sc.addEventListener('click', onPageClick);
+  // 页面进入视野附近才加载图片和文字层
+  const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) pBuild(+e.target.dataset.n); }), { root: sc, rootMargin: '900px 0px' });
+  $$('.ppage', sc).forEach(pg => io.observe(pg));
+  let rt = 0;
+  const ro = new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(() => P?.built.forEach(pFit), 120); });
+  ro.observe(sc);
+  let st = 0;
+  sc.addEventListener('scroll', () => { if (!st) st = requestAnimationFrame(() => { st = 0; pTrack(); }); }, { passive: true });
+  const onKey = e => {
+    if (e.target.closest('input, textarea, select, dialog') || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === 'Escape') { hidePop(); if (P.pinMode) setPinMode(false); return; }
+    if (e.key.toLowerCase() === 'n') setPinMode(!P.pinMode);
+  };
+  document.addEventListener('keydown', onKey);
+  cleanup = () => { pFlushNote(); io.disconnect(); ro.disconnect(); document.removeEventListener('keydown', onKey); P?.stopPoll?.(); P = null; };
+  pShowTab(P.tab);
+  updatePCount();
+  requestAnimationFrame(() => { pGo(P.cur, true); pTrack(); });
+}
+
+function pPage(n) { return $(`#pscroll .ppage[data-n="${n}"]`); }
+function pGo(n, instant) {
+  const pg = pPage(Math.max(1, Math.min(P.N, n))); if (!pg) return;
+  $('#pscroll').scrollTo({ top: pg.offsetTop - 12, behavior: instant ? 'auto' : 'smooth' });
+}
+// 让页面上的某个位置（页面坐标）出现在视野里，并闪一下
+function pReveal(n, y, flash) {
+  const pg = pPage(n); if (!pg) return;
+  pBuild(n);
+  const h = P.paper.pages[n - 1].h, top = pg.offsetTop + (y != null ? y / h * pg.offsetHeight - 140 : -12);
+  $('#pscroll').scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+  if (flash) setTimeout(() => { flash.classList?.add('flash'); setTimeout(() => flash.classList?.remove('flash'), 1600); }, 350);
+}
+function pTrack() {
+  if (!P) return;
+  const sc = $('#pscroll'), mid = sc.scrollTop + sc.clientHeight * 0.35;
+  let cur = 1;
+  for (const pg of $$('.ppage', sc)) { if (pg.offsetTop <= mid) cur = +pg.dataset.n; else break; }
+  const max = sc.scrollHeight - sc.clientHeight;
+  $('#bar').style.width = (max > 0 ? sc.scrollTop / max * 100 : 100) + '%';
+  if (cur === P.cur && $('#pageNo').textContent) return;
+  P.cur = cur;
+  $('#pageNo').textContent = `${cur} / ${P.N}`;
+  store.set('page.' + P.id, cur);
+  const h = `#/paper/${encodeURIComponent(P.id)}/${cur}`;
+  if (location.hash !== h) history.replaceState(null, '', h);
+}
+function pBuild(n) {
+  if (!P || P.built.has(n)) return;
+  P.built.add(n);
+  const pg = pPage(n); if (!pg) return;
+  $('img', pg).src = `${P.paper.base}pages/${pad3(n)}.jpg`;
+  const tl = $('.tl', pg), page = P.paper.pages[n - 1], W = page.w, H = page.h;
+  const frag = document.createDocumentFragment();
+  (P.words[n - 1] || []).forEach(([x0, y0, x1, y1, text], i) => {
+    const word = text.replace(/\s+$/, '');
+    if (!word) return;
+    const h = y1 - y0, fs = h * 0.86;
+    const s = document.createElement('span');
+    s.textContent = word;
+    s.style.left = (x0 / W * 100) + '%'; s.style.top = (y0 / H * 100) + '%'; s.style.height = (h / H * 100) + '%';
+    s.style.fontSize = (fs / W * 100) + 'cqw'; s.style.lineHeight = h / fs;
+    s.dataset.w = (x1 - x0) / W; s.dataset.i = i;
+    frag.appendChild(s);
+    frag.appendChild(document.createTextNode(text.endsWith(' ') ? ' ' : '\n'));
+  });
+  tl.appendChild(frag);
+  pFit(n);
+  pRenderMarks(n);
+}
+function pFit(n) {
+  const pg = pPage(n); if (!pg) return;
+  const cw = pg.clientWidth; if (!cw) return;
+  const spans = $$('.tl span', pg);
+  spans.forEach(s => { s.style.transform = ''; });
+  const ws = spans.map(s => s.offsetWidth);          // 先统一量，再统一写，避免反复排版
+  spans.forEach((s, i) => { if (ws[i] > 0) s.style.transform = `scaleX(${(s.dataset.w * cw) / ws[i]})`; });
+}
+
+/* ---------- 论文上的高亮、批注、便签 ---------- */
+const pMarks = n => (P.marks[n] = P.marks[n] || { star: false, note: '', hl: [], pins: [] });
+const pEmpty = m => !m || (!m.star && !(m.note || '').trim() && !(m.hl || []).length && !(m.pins || []).length);
+async function pSave(n) {
+  if (!P) return;
+  const id = P.id, m = P.marks[n], empty = pEmpty(m);
+  if (empty) delete P.marks[n];
+  try { await api(`decks/${encodeURIComponent(id)}/marks/${n}`, empty ? { method: 'DELETE' } : { method: 'PUT', json: m }); }
+  catch (e) { toast(L('批注没保存上：', 'Note not saved: ') + e.message); }
+  if (P?.id === id) updatePCount();
+}
+function pFlushNote() { if (!P?.noteTimer) return; clearTimeout(P.noteTimer.t); const n = P.noteTimer.n; P.noteTimer = null; pSave(n); }
+function pSaveSoon(n) { if (P.noteTimer) clearTimeout(P.noteTimer.t); P.noteTimer = { n, t: setTimeout(() => { if (P) { P.noteTimer = null; pSave(n); } }, 600) }; }
+function updatePCount() {
+  if (!P) return;
+  const c = Object.values(P.marks).reduce((a, m) => a + (m.hl || []).length + (m.pins || []).length, 0);
+  $('#mcount') && ($('#mcount').textContent = c);
+}
+function pRenderMarks(n) {
+  const pg = pPage(n); if (!pg || !P.built.has(n)) return;
+  const page = P.paper.pages[n - 1], W = page.w, H = page.h, pad = 0.6, m = P.marks[n] || {};
+  $('.hl', pg).innerHTML = (m.hl || []).map(h => h.rects.map(([x0, y0, x1, y1]) =>
+    `<i class="c-${h.color}" data-hid="${esc(h.id)}" style="left:${(x0 - pad) / W * 100}%;top:${(y0 - pad) / H * 100}%;width:${(x1 - x0 + 2 * pad) / W * 100}%;height:${(y1 - y0 + 2 * pad) / H * 100}%"></i>`).join('')).join('');
+  $('.pins', pg).innerHTML = (m.hl || []).map(h => {
+    const r = h.rects[h.rects.length - 1];
+    return `<button class="hlmark c-${h.color} ${h.note ? 'has' : ''}" data-hmark="${esc(h.id)}" style="left:${Math.min(r[2] + 1, W - 4) / W * 100}%;top:${r[1] / H * 100}%"
+      ${h.note ? `data-tip="${esc(h.note.slice(0, 160))}"` : `title="${L('写批注', 'Add a comment')}"`}>${h.note ? icon('note') : ''}</button>`;
+  }).join('') + (m.pins || []).map(p => `<button class="pin c-${p.color}" data-pin="${esc(p.id)}" style="left:${p.x / W * 100}%;top:${p.y / H * 100}%" ${p.text ? `data-tip="${esc(p.text.slice(0, 160))}"` : ''}>${icon('note')}</button>`).join('');
+}
+function setPinMode(on) {
+  P.pinMode = on;
+  $('#reader').classList.toggle('pinning', on);
+  $('#pinBtn').setAttribute('aria-pressed', on);
+  if (on) toast(L('点论文上任意位置贴一张便签（Esc 取消）', 'Click anywhere on the paper to stick a note (Esc to cancel)'));
+}
+function pageXY(pg, e) {
+  const r = pg.getBoundingClientRect(), page = P.paper.pages[+pg.dataset.n - 1];
+  return { x: (e.clientX - r.left) / r.width * page.w, y: (e.clientY - r.top) / r.height * page.h };
+}
+function onPageClick(e) {
+  const mk = e.target.closest('[data-hmark], [data-pin]');
+  if (mk) { e.stopPropagation(); const n = +mk.closest('.ppage').dataset.n; return mk.dataset.pin ? editPin(n, mk.dataset.pin, mk) : editHl(n, mk.dataset.hmark, mk); }
+  if (!P.pinMode) return;
+  const pg = e.target.closest('.ppage'); if (!pg) return;
+  const n = +pg.dataset.n, { x, y } = pageXY(pg, e);
+  const pin = { id: 'p' + Date.now().toString(36), x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, text: '', color: 'yellow', at: Date.now() / 1000 };
+  const m = pMarks(n); (m.pins = m.pins || []).push(pin);
+  setPinMode(false);
+  getSelection()?.removeAllRanges();
+  pRenderMarks(n);
+  editPin(n, pin.id, $(`[data-pin="${pin.id}"]`, pg), true);
+}
+// 在论文上直接写批注的小窗（高亮批注和便签共用）
+function noteEditor({ title, quote, text, color, at, onText, onColor, onDelete, onDone }) {
+  const token = ++popToken;
+  pop.innerHTML = `<div class="nedit">
+    <div class="head"><b>${esc(title)}</b><span class="spacer"></span><span class="hl-dots">${hlDots(color, 'data-ncol')}</span><button class="x" title="${L('关闭', 'Close')} (Esc)">${icon('x')}</button></div>
+    ${quote ? `<blockquote>${esc(quote)}</blockquote>` : ''}
+    <textarea rows="4" placeholder="${L('写下你的想法、疑问、和别的论文的联系…', 'Your thoughts, questions, links to other papers…')}">${esc(text || '')}</textarea>
+    <div class="row"><button class="btn sm ghost danger" data-ndel>${icon('trash')}${L('删除', 'Delete')}</button><span class="spacer"></span><span class="muted small">${L('自动保存', 'Saved automatically')}</span><button class="btn sm primary" data-nok>${L('完成', 'Done')}</button></div></div>`;
+  pop.hidden = false; placePop(at);
+  const ta = $('textarea', pop);
+  setTimeout(() => ta.focus(), 30);
+  ta.oninput = () => onText(ta.value);
+  ta.onkeydown = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) close(); };
+  const close = () => { if (token === popToken) hidePop(); onDone?.(ta.value); };
+  $('.x', pop).onclick = close; $('[data-nok]', pop).onclick = close;
+  $('[data-ndel]', pop).onclick = () => { hidePop(); onDelete(); };
+  $$('[data-ncol]', pop).forEach(b => b.onclick = () => { $$('[data-ncol]', pop).forEach(x => x.classList.toggle('on', x === b)); onColor(b.dataset.ncol); });
+}
+const atOf = el => { const r = el.getBoundingClientRect(); return { x: r.left, y: r.bottom, top: r.top }; };
+function editHl(n, hid, anchor) {
+  const h = (P.marks[n]?.hl || []).find(x => x.id === hid); if (!h) return;
+  noteEditor({ title: L(`第 ${n} 页 · 高亮批注`, `Page ${n} · comment`), quote: h.text, text: h.note, color: h.color, at: atOf(anchor),
+    onText: v => { h.note = v; pSaveSoon(n); },
+    onColor: c => { h.color = c; pSave(n); pRenderMarks(n); refreshPMarks(); },
+    onDelete: () => { P.marks[n].hl = P.marks[n].hl.filter(x => x !== h); pSave(n); pRenderMarks(n); refreshPMarks(); },
+    onDone: () => { pFlushNote(); pRenderMarks(n); refreshPMarks(); } });
+}
+function editPin(n, pid, anchor, fresh) {
+  const p = (P.marks[n]?.pins || []).find(x => x.id === pid); if (!p) return;
+  const drop = () => { P.marks[n].pins = P.marks[n].pins.filter(x => x !== p); pSave(n); pRenderMarks(n); refreshPMarks(); };
+  noteEditor({ title: L(`第 ${n} 页 · 便签`, `Page ${n} · note`), text: p.text, color: p.color, at: atOf(anchor),
+    onText: v => { p.text = v; pSaveSoon(n); },
+    onColor: c => { p.color = c; pSave(n); pRenderMarks(n); },
+    onDelete: drop,
+    onDone: v => { if (fresh && !v.trim()) return drop(); pFlushNote(); pRenderMarks(n); refreshPMarks(); } });
+}
+function refreshPMarks() { if (P?.tab === 'pmarks') renderPMarks(); updatePCount(); }
+
+// 论文里的选区：换算成页面坐标的高亮矩形
+function pSelHighlight(range, pg) {
+  const n = +pg.dataset.n, ws = P.words[n - 1] || [];
+  const boxes = $$('.tl span', pg).filter(s => range.intersectsNode(s)).map(s => ws[+s.dataset.i]).filter(Boolean);
+  if (!boxes.length) return null;
+  const rects = [];
+  for (const [x0, y0, x1, y1] of boxes) {
+    const last = rects[rects.length - 1], h = y1 - y0;
+    if (last && Math.abs(last[1] - y0) < h * 0.5 && x0 >= last[0] && x0 - last[2] < h * 1.5) {
+      last[1] = Math.min(last[1], y0); last[2] = Math.max(last[2], x1); last[3] = Math.max(last[3], y1);
+    } else rects.push([x0, y0, x1, y1]);
+  }
+  return { page: n, text: pText(range, pg).slice(0, 500), rects };
+}
+function pText(range, pg) {
+  return $$('.tl span', pg).filter(s => range.intersectsNode(s)).map(s => {
+    const tn = s.firstChild, t = s.textContent;
+    return t.slice(tn === range.startContainer ? range.startOffset : 0, tn === range.endContainer ? range.endOffset : t.length);
+  }).filter(Boolean).join(' ').replace(/(\w)- (\w)/g, '$1$2').replace(/\s+/g, ' ').trim();
+}
+function pAddHighlight(hl, color, withNote) {
+  const n = hl.page, h = { id: 'h' + Date.now().toString(36), text: hl.text, rects: hl.rects, color, note: '', at: Date.now() / 1000 };
+  pMarks(n).hl.push(h);
+  pSave(n); getSelection()?.removeAllRanges(); hidePop(); pRenderMarks(n); refreshPMarks();
+  if (withNote) { const mk = $(`[data-hmark="${h.id}"]`); if (mk) editHl(n, h.id, mk); }
+  return h;
+}
+function pSentence(pg, range) {
+  // 查词出处：取选中单词所在的那句话
+  const spans = $$('.tl span', pg), i = spans.findIndex(s => range.intersectsNode(s));
+  if (i < 0) return '';
+  let a = i, b = i;
+  while (a > 0 && i - a < 40 && !/[.!?]$/.test(spans[a - 1].textContent)) a--;
+  while (b < spans.length - 1 && b - i < 40 && !/[.!?]$/.test(spans[b].textContent)) b++;
+  return spans.slice(a, b + 1).map(s => s.textContent).join(' ').replace(/(\w)- (\w)/g, '$1$2').slice(0, 300);
+}
+
+/* ---------- 划句：翻译 / AI 解释 / 批注 ---------- */
+async function transPop(text, at, hl) {
+  const token = ++popToken;
+  const zh = LANG === 'zh';
+  const short = text.length > 220 ? text.slice(0, 217) + '…' : text;
+  pop.innerHTML = `<div class="tpop">
+    <div class="head"><div class="tsrc">${esc(short)}</div><button class="x" title="${L('关闭', 'Close')} (Esc)">${icon('x')}</button></div>
+    ${zh ? `<div class="trans"><div class="skel" style="width:90%"></div><div class="skel" style="width:70%"></div></div>` : ''}
+    <div class="aians" hidden></div>
+    <div class="tfoot">${hl ? `<span class="hl-dots">${hlDots()}</span>` : ''}<span class="spacer"></span>
+      ${hl ? `<button class="btn sm ghost" data-t="note">${icon('note')}${L('批注', 'Comment')}</button>` : ''}
+      <button class="btn sm ghost" data-t="ai">${icon('spark')}${L('AI 解释', 'Explain')}</button>
+      <button class="btn sm ghost" data-t="copy" title="${L('复制原文', 'Copy the text')}">${icon('copy')}</button></div>
+    <div class="tby"></div></div>`;
+  pop.hidden = false; placePop(at);
+  $('.x', pop).onclick = hidePop;
+  if (hl) $$('[data-hl]', pop).forEach(b => b.onclick = () => pAddHighlight(hl, b.dataset.hl));
+  $('[data-t="copy"]', pop).onclick = async () => { await copyText(text); toast(L('已复制', 'Copied')); };
+  if (hl) $('[data-t="note"]', pop).onclick = () => pAddHighlight(hl, 'yellow', true);
+  $('[data-t="ai"]', pop).onclick = () => askAI(text, hl, token);
+  if (!zh) return;
+  try {
+    const r = await api('translate', { method: 'POST', json: { q: text } });
+    if (token !== popToken) return;
+    $('.trans', pop).innerHTML = esc(r.text);
+    $('.tby', pop).textContent = r.by;
+  } catch (e) {
+    if (token !== popToken) return;
+    $('.trans', pop).innerHTML = `<span class="muted">${esc(e.message)}</span>`;
+  }
+  placePop(at);
+}
+async function askAI(text, hl, token) {
+  if (!P.settings) { try { P.settings = await api('settings'); } catch {} }
+  const web = ['web', 'outline'].includes(P.settings?.provider || 'web');
+  const body = { text, page: hl?.page || P.cur };
+  if (web) {
+    try {
+      const r = await api(`papers/${encodeURIComponent(P.id)}/ask/prompt`, { method: 'POST', json: body });
+      await copyText(r.prompt);
+      toast(L('已复制提问（带上下文），粘贴到 ChatGPT / Claude 即可', 'Question copied with its context. Paste it into ChatGPT or Claude.'));
+    } catch (e) { toast(e.message); }
+    return;
+  }
+  const box = $('.aians', pop); if (!box) return;
+  box.hidden = false;
+  box.innerHTML = `<div class="muted small">${icon('spark')} ${L('AI 正在看这段…', 'The AI is reading this passage…')}</div>`;
+  try {
+    const job = await api(`papers/${encodeURIComponent(P.id)}/ask/run`, { method: 'POST', json: body });
+    pollJob(job.id, j => {
+      if (j.status === 'running' || token !== popToken) return;
+      if (j.status !== 'done') { box.innerHTML = `<span class="bad">${esc(srvMsg(j.message))}</span>`; return; }
+      const ans = j.result.answer;
+      box.innerHTML = `<div class="md">${md(ans)}</div><div class="row">${hl ? `<button class="btn sm" data-save>${icon('note')}${L('存为批注', 'Save as a comment')}</button>` : ''}<span class="spacer"></span><small class="muted">${esc(j.result.by || '')}</small></div>`;
+      const sv = $('[data-save]', box);
+      if (sv) sv.onclick = () => { const h = pAddHighlight(hl, 'blue'); h.note = ans; pSave(hl.page); pRenderMarks(hl.page); refreshPMarks(); toast(L('已存为批注', 'Saved as a comment')); };
+    }, 1500);
+  } catch (e) { box.innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+}
+// 论文里 mouseup 之后：短的英文词查词典，长的句子翻译
+function paperSelection(sel, wordSpan, moved, detail) {
+  if (P.pinMode) return;
+  if (wordSpan && !moved && detail === 1 && (!sel || sel.isCollapsed)) {
+    const tn = wordSpan.firstChild, m = tn.data.match(/[A-Za-z][A-Za-z'’-]*[A-Za-z]|[A-Za-z]/);
+    if (!m) return;
+    const r = document.createRange(); r.setStart(tn, m.index); r.setEnd(tn, m.index + m[0].length);
+    sel.removeAllRanges(); sel.addRange(r);
+  }
+  if (!sel || sel.isCollapsed) return;
+  const range = sel.getRangeAt(0);
+  const node = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
+  const pg = node?.closest('.ppage'); if (!pg) return;
+  snapToWords(sel);
+  const hl = pSelHighlight(range, pg);
+  const rect = range.getBoundingClientRect(), at = { x: rect.left, y: rect.bottom, top: rect.top };
+  const text = hl?.text || sel.toString().replace(/\s+/g, ' ').trim();
+  if (!text) return;
+  const word = text.replace(/[‘’]/g, "'").replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, '');
+  if (word && /^[A-Za-z][A-Za-z'\- ]*$/.test(word) && word.split(' ').length <= 3 && word.length <= 40) {
+    P.lastCtx = { page: +pg.dataset.n, ctx: pSentence(pg, range) };
+    return lookup(word.replace(/'s$/i, ''), at, { hl });
+  }
+  transPop(text, at, hl);
+}
+
+/* ---------- AI 解读面板 ---------- */
+function pShowTab(t) {
+  if (!$(`.tabs [data-tab="${t}"]`)) t = 'brief';
+  P.tab = t; store.set('paper.tab', t);
+  $$('.tabs [data-tab]').forEach(x => x.classList.toggle('on', x.dataset.tab === t));
+  ['brief', 'pmarks', 'figs'].forEach(k => { $('#' + k).hidden = k !== t; });
+  if (t === 'brief') renderBrief();
+  if (t === 'pmarks') renderPMarks();
+  if (t === 'figs') renderFigs();
+}
+// AI 回复里的一点点 Markdown：段落、加粗、行内代码、“图 3 / Figure 3” 链接
+function md(s) {
+  return String(s || '').split(/\n{2,}/).map(par => `<p>${esc(par)
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/(Figure|Fig\.|Table|Tab\.|图|表)\s?(\d+)/g, (m0, k, n) => `<a class="figref" data-fig="${n}" data-kind="${/^(Table|Tab|表)/.test(k) ? 'table' : 'figure'}">${m0}</a>`)
+    .replace(/\n/g, '<br>')}</p>`).join('');
+}
+const figById = (id, kind) => {
+  id = String(id ?? ''); if (/^T\d+$/i.test(id)) { kind = 'table'; id = id.slice(1); }
+  kind = kind || 'figure';
+  return P.figs.find(f => f.id === id && f.kind === kind) || P.figs.find(f => f.id === id);
+};
+function figHTML(f, big) {
+  if (!f) return '';
+  return `<figure class="pfig ${big ? 'big' : ''}"><button class="fimg" data-figgo="${f.page}" data-y="${f.rect[1]}" title="${L(`在论文第 ${f.page} 页查看`, `Show on page ${f.page}`)}"><img loading="lazy" src="${P.paper.base}${f.img}?v=${P.paper.figs_at || 0}" alt="" style="aspect-ratio:auto ${Math.max(1, f.rect[2] - f.rect[0]).toFixed(1)} / ${Math.max(1, f.rect[3] - f.rect[1]).toFixed(1)}"></button>
+    <figcaption><b>${f.kind === 'table' ? L('表', 'Table') : L('图', 'Figure')} ${esc(f.id)}</b> · ${L(`第 ${f.page} 页`, `p.${f.page}`)} · ${esc(f.caption.replace(/^(Figure|Fig\.|Table|Tab\.)\s*\d+\s*[.:|]\s*/i, '').slice(0, 220))}</figcaption></figure>`;
+}
+/* 不联网的简易 LaTeX 显示：常见符号、上下标、分式、粗体；看不懂的命令原样留着 */
+const TEX_SYM = { alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', varepsilon: 'ε', zeta: 'ζ', eta: 'η', theta: 'θ', lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π', rho: 'ρ', sigma: 'σ', tau: 'τ', phi: 'φ', varphi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω',
+  Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Sigma: 'Σ', Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω', sum: '∑', prod: '∏', int: '∫', partial: '∂', nabla: '∇', infty: '∞',
+  cdot: '·', times: '×', pm: '±', leq: '≤', le: '≤', geq: '≥', ge: '≥', neq: '≠', approx: '≈', sim: '∼', propto: '∝', in: '∈', notin: '∉', subset: '⊂', subseteq: '⊆', cup: '∪', cap: '∩',
+  forall: '∀', exists: '∃', rightarrow: '→', to: '→', leftarrow: '←', Rightarrow: '⇒', mapsto: '↦', lVert: '‖', rVert: '‖', Vert: '‖', lvert: '|', rvert: '|', langle: '⟨', rangle: '⟩',
+  ldots: '…', cdots: '⋯', dots: '…', quad: '\u2003', qquad: '\u2003\u2003', top: '⊤', circ: '∘', odot: '⊙', oplus: '⊕', otimes: '⊗', log: 'log', exp: 'exp', min: 'min', max: 'max', arg: 'arg', sin: 'sin', cos: 'cos' };
+function tex(src) {
+  let i = 0;
+  const s = String(src || '');
+  const group = () => {            // 读一个 {…} 或一个字符 / 命令
+    while (s[i] === ' ') i++;
+    if (s[i] === '{') { i++; const out = run('}'); i++; return out; }
+    if (s[i] === '\\') return cmd();
+    return esc(s[i++] || '');
+  };
+  const cmd = () => {
+    i++;
+    const m = /^[A-Za-z]+/.exec(s.slice(i));
+    if (!m) { const c = s[i++] || ''; return c === ',' || c === ';' || c === ' ' ? ' ' : c === '!' ? '' : esc(c); }
+    const name = m[0]; i += name.length;
+    if (name === 'frac' || name === 'dfrac' || name === 'tfrac') { const a = group(), b = group(); return `<span class="tfrac"><span>${a}</span><span>${b}</span></span>`; }
+    if (name === 'sqrt') { return `√<span class="tov">${group()}</span>`; }
+    if (/^(mathbf|boldsymbol|bm)$/.test(name)) return `<b>${group()}</b>`;
+    if (/^(mathrm|text|textrm|operatorname|mathsf)$/.test(name)) return `<span class="trm">${group()}</span>`;
+    if (/^(mathcal|mathscr)$/.test(name)) return `<span class="tcal">${group()}</span>`;
+    if (name === 'mathbb') { const g = group(); return ({ R: 'ℝ', N: 'ℕ', Z: 'ℤ', E: '𝔼', C: 'ℂ', Q: 'ℚ' })[g] || g; }
+    if (name === 'hat' || name === 'widehat') return `${group()}\u0302`;
+    if (name === 'bar' || name === 'overline') return `<span class="tov">${group()}</span>`;
+    if (name === 'tilde' || name === 'widetilde') return `${group()}\u0303`;
+    if (name === 'dot') return `${group()}\u0307`;
+    if (name === 'vec') return `${group()}\u20d7`;
+    if (/^(left|right|big|Big|bigg|Bigg|bigl|bigr|Bigl|Bigr|displaystyle|limits|nolimits)$/.test(name)) return '';
+    return TEX_SYM[name] ?? `\\${esc(name)}`;
+  };
+  const run = end => {
+    let out = '';
+    while (i < s.length && s[i] !== end) {
+      const c = s[i];
+      if (c === '\\') out += cmd();
+      else if (c === '{') { i++; out += run('}'); i++; }
+      else if (c === '_' || c === '^') { i++; const g = group(); out += c === '_' ? `<sub>${g}</sub>` : `<sup>${g}</sup>`; }
+      else if (c === '&') { i++; out += ' '; }
+      else { i++; out += /[A-Za-z]/.test(c) ? `<i>${c}</i>` : esc(c); }
+    }
+    return out;
+  };
+  try { return run(null); } catch { return esc(s); }
+}
+const pageLink = n => n ? `<a class="pglink" data-goto="${n}">${L(`第 ${n} 页`, `p.${n}`)}</a>` : '';
+const ul = xs => xs?.length ? `<ul class="blist">${xs.map(x => `<li>${md(x).replace(/^<p>|<\/p>$/g, '')}</li>`).join('')}</ul>` : '';
+const BRIEF_SECS = () => [
+  ['problem', L('研究问题', 'The problem')], ['solution', L('解决思路', 'The approach')], ['framework', L('整体框架', 'The framework')],
+  ['abstract', L('摘要翻译', 'Abstract, plainly')], ['introduction', L('引言翻译', 'Introduction, plainly')], ['method', L('方法详解', 'The method in detail')],
+  ['figure', L('框架图精读', 'The framework figure')], ['figures', L('其他图表', 'Other figures')], ['results', L('实验结论', 'Results')],
+  ['limitations', L('局限', 'Limitations')], ['questions', L('思考题', 'Questions')]];
+function renderBrief() {
+  const el = $('#brief'); if (!el || !P) return;
+  const b = P.brief || {}, running = P.job?.status === 'running';
+  const has = BRIEF_SECS().filter(([k]) => b[k] && (!Array.isArray(b[k]) || b[k].length));
+  if (!has.length) {
+    el.innerHTML = `<div class="empty">
+      <div class="art">${icon('spark')}</div>
+      <h3>${running ? L('AI 正在读这篇论文…', 'The AI is reading this paper…') : L('还没有 AI 解读', 'No AI guide yet')}</h3>
+      <p>${L('AI 会通读全文，按这个顺序讲给你听：', 'The AI reads the whole paper and explains, in this order:')}</p>
+      <ol class="bwill"><li>${L('论文要解决什么问题，现有方法差在哪', 'what problem it solves and where existing methods fall short')}</li>
+        <li>${L('它是怎么解决的，核心思路和贡献', 'how it solves it: the core idea and contributions')}</li>
+        <li>${L('整体框架：每个模块的输入、做法和输出', 'the framework: each module’s input, method and output')}</li>
+        <li>${L('摘要和引言的完整翻译', 'the abstract and introduction, translated in full')}</li>
+        <li>${L('方法部分逐节详解，配上对应的图', 'the method, section by section, with its figures')}</li>
+        <li>${L('框架图逐块精读：数据怎么流、为什么这样设计', 'the framework figure, part by part: the data flow and why it is built this way')}</li></ol>
+      ${running ? `<div class="skel" style="width:80%;margin:0 auto"></div>` : `<div class="row"><button class="btn primary" data-act="brief">${icon('spark')}${L('用 AI 解读这篇论文', 'Explain this paper with AI')}</button></div>
+      <div class="hint">${L('不需要 API Key：可以用网页版 ChatGPT / Claude 复制粘贴，也可以让 Claude Code 自动完成。', 'No API key needed: copy and paste with ChatGPT or Claude, or let Claude Code do it automatically.')}</div>`}</div>`;
+    return;
+  }
+  const missing = BRIEF_SECS().slice(0, 7).filter(([k]) => !b[k]).map(([, t]) => t);
+  const fw = b.framework, fg = b.figure;
+  const sec = (k, t, body) => body ? `<section class="bsec" id="b-${k}"><h2>${t}</h2>${body}</section>` : '';
+  el.innerHTML = `
+    <nav class="btoc">${has.map(([k, t]) => `<a data-sec="${k}">${t}</a>`).join('')}</nav>
+    <h1 class="zh">${esc(b.title || P.paper.title)}</h1>
+    ${b.title && b.title !== P.paper.title ? `<p class="en-title">${esc(P.paper.title)}</p>` : '<div style="height:12px"></div>'}
+    ${b.one_line ? `<p class="gist">${esc(b.one_line)}</p>` : ''}
+    ${missing.length ? `<div class="lang-note">${L(`还缺：${missing.join('、')}。`, `Missing: ${missing.join(', ')}.`)}<button class="btn sm ghost" data-act="brief">${L('补全', 'Fill in')}</button></div>` : ''}
+    ${sec('problem', L('研究问题', 'The problem'), b.problem && `<div class="md">${md(b.problem.summary)}</div>${ul(b.problem.points)}`)}
+    ${sec('solution', L('解决思路', 'The approach'), b.solution && `<div class="md">${md(b.solution.summary)}</div>${ul(b.solution.points)}`)}
+    ${sec('framework', L('整体框架', 'The framework'), fw && `<div class="md">${md(fw.summary)}</div>
+      <ol class="flow">${(fw.steps || []).map(s => `<li><b>${esc(s.name || '')}</b>
+        ${s.input ? `<div class="io"><span>${L('输入', 'In')}</span>${esc(s.input)}</div>` : ''}<div class="md">${md(s.does)}</div>
+        ${s.output ? `<div class="io"><span>${L('输出', 'Out')}</span>${esc(s.output)}</div>` : ''}</li>`).join('')}</ol>`)}
+    ${sec('abstract', L('摘要翻译', 'Abstract, plainly'), b.abstract?.length && `<div class="md trans-text">${b.abstract.map(md).join('')}</div>`)}
+    ${sec('introduction', L('引言翻译', 'Introduction, plainly'), b.introduction?.length && `<div class="md trans-text">${b.introduction.map(p => md(p.text).replace(/<\/p>$/, (p.page ? ' ' + pageLink(p.page) : '') + '</p>')).join('')}</div>`)}
+    ${sec('method', L('方法详解', 'The method in detail'), b.method?.length && b.method.map(m => `<div class="msec">
+      <h3>${esc(m.section || '')} ${pageLink(m.page)}</h3>
+      ${(m.figures || []).map(id => figHTML(figById(id))).join('')}
+      <div class="md">${md(m.text)}</div>
+      ${(m.formulas || []).map(f => `<div class="formula"><div class="tex" title="${esc(f.tex)}">${tex(f.tex)}</div><div class="md">${md(f.meaning)}</div></div>`).join('')}</div>`).join(''))}
+    ${sec('figure', L('框架图精读', 'The framework figure'), fg && `${figHTML(figById(fg.id), true)}
+      <div class="md">${md(fg.summary)}</div>
+      ${fg.parts?.length ? `<h3>${L('逐块看', 'Part by part')}</h3><dl class="parts">${fg.parts.map(p => `<dt>${esc(p.name)}</dt><dd>${md(p.explain)}</dd>`).join('')}</dl>` : ''}
+      ${fg.flow?.length ? `<h3>${L('跟着箭头走', 'Follow the arrows')}</h3><ol class="steps-n">${fg.flow.map(x => `<li>${md(x).replace(/^<p>|<\/p>$/g, '')}</li>`).join('')}</ol>` : ''}
+      ${fg.design?.length ? `<h3>${L('为什么这样设计', 'Why it is built this way')}</h3>${ul(fg.design)}` : ''}
+      ${fg.details?.length ? `<h3>${L('容易忽略的细节', 'Easy-to-miss details')}</h3>${ul(fg.details)}` : ''}`)}
+    ${sec('figures', L('其他图表', 'Other figures'), b.figures?.length && b.figures.map(f => `${figHTML(figById(f.id)) || `<h3>${/^T/.test(f.id) ? L('表', 'Table') + ' ' + esc(f.id.slice(1)) : L('图', 'Figure') + ' ' + esc(f.id)}</h3>`}<div class="md">${md(f.explain)}</div>`).join(''))}
+    ${sec('results', L('实验结论', 'Results'), ul(b.results))}
+    ${sec('limitations', L('局限', 'Limitations'), ul(b.limitations))}
+    ${sec('questions', L('思考题', 'Questions'), ul(b.questions))}
+    <div class="byline">${esc(b.by || '')}${b.at ? ' · ' + new Date(b.at * 1000).toLocaleDateString() : ''}
+      · <a data-act="brief">${L('重新生成', 'Regenerate')}</a> · <a data-act="delbrief">${L('删除解读', 'Delete')}</a></div>`;
+}
+function renderFigs() {
+  const el = $('#figs'); if (!el || !P) return;
+  el.innerHTML = P.figs.length ? `<p class="muted small">${L('从 PDF 里自动裁出来的图和表。点图片跳到论文里对应的位置。', 'Figures and tables cut out of the PDF. Click one to jump to it in the paper.')}</p>` + P.figs.map(f => figHTML(f)).join('')
+    : `<div class="vocab-empty"><b>${L('没有识别到图表', 'No figures found')}</b>${L('这篇 PDF 里没有找到 “Figure N.” 开头的图注。', 'No captions starting with “Figure N.” were found in this PDF.')}</div>`;
+}
+async function onBriefClick(e) {
+  const s = e.target.closest('[data-sec]');
+  if (s) {
+    const t = $('#b-' + s.dataset.sec), toc = s.closest('.btoc');
+    if (t) { t.style.scrollMarginTop = (toc ? toc.offsetHeight + 12 : 12) + 'px'; t.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    return;
+  }
+  const g = e.target.closest('[data-goto]'); if (g) return pGo(+g.dataset.goto);
+  const fg = e.target.closest('[data-figgo]'); if (fg) return pReveal(+fg.dataset.figgo, +fg.dataset.y);
+  const fr = e.target.closest('[data-fig]');
+  if (fr) { const f = figById(fr.dataset.fig, fr.dataset.kind); return f ? pReveal(f.page, f.rect[1]) : toast(L('没找到这张图', 'Figure not found')); }
+  const a = e.target.closest('[data-act]'); if (!a) return;
+  if (a.dataset.act === 'brief') return briefDialog();
+  if (a.dataset.act === 'delbrief' && confirm(L('删除这篇论文的 AI 解读？', 'Delete the AI guide for this paper?'))) {
+    try { await api(`papers/${encodeURIComponent(P.id)}/brief`, { method: 'DELETE' }); P.brief = {}; renderBrief(); } catch (er) { toast(er.message); }
+  }
+}
+function watchBrief(job, engine) {
+  P.job = job; renderBrief();
+  const bar = () => {
+    const el = $('#jobbar'); if (!el || !P) return;
+    el.innerHTML = P.job?.status === 'running' ? `<div class="jobbar">${icon('spark')}<span>${L(`${engine} 正在读论文、写解读，一般要 3–8 分钟…`, `${engine} is reading the paper. This usually takes 3–8 minutes…`)}</span></div>` : '';
+  };
+  bar();
+  P.stopPoll?.();
+  P.stopPoll = pollJob(job.id, async j => {
+    if (!P) return;
+    P.job = j; bar();
+    if (j.status === 'running') return;
+    if (j.status === 'done') { P.brief = j.result.brief; toast(L('AI 解读写好了', 'The AI guide is ready')); pShowTab('brief'); }
+    else { toast(srvMsg(j.message)); renderBrief(); }
+  }, 3000);
+}
+async function briefDialog() {
+  const dlg = $('#dlg');
+  let settings = {};
+  try { settings = await api('settings'); } catch {}
+  P.settings = settings;
+  const auto = !!settings.provider && !['web', 'outline'].includes(settings.provider);
+  const engine = settings.provider === 'claude-cli' ? 'Claude Code' : 'API';
+  let lastChat = store.get('web.chat', 'ChatGPT');
+  dlg.innerHTML = `<form method="dialog" class="wiz studio">
+    <div class="dlg-head"><div><h2>${L('AI 解读论文', 'Explain this paper with AI')}</h2>
+      <p class="sub">${L('研究问题 → 解决思路 → 整体框架 → 摘要和引言翻译 → 方法逐节详解（配图）→ 框架图精读。', 'Problem → approach → framework → abstract and introduction → the method section by section, with figures → the framework figure in depth.')}</p></div>
+      <button class="ibtn" value="cancel">${icon('x')}</button></div>
+    <div class="dlg-body">
+      ${auto ? `<div class="auto-box"><button class="btn primary" type="button" id="bRun">${icon('spark')}${L(`用 ${engine} 自动解读`, `Explain with ${engine}`)}</button><span class="muted">${L('会把框架图等几张图一起发给它看', 'The framework figure and a few others are sent along')}</span></div>` : ''}
+      <ol class="steps">
+        <li><div class="st-h"><b>${L('复制提示词', 'Copy the prompt')}</b></div>
+          <div class="row"><button class="btn ${auto ? '' : 'primary'}" type="button" id="bCopy">${icon('copy')}${L('复制提示词', 'Copy prompt')}</button>
+            <span class="chats">${L('打开', 'Open')} ${CHATS.map(([n, u]) => `<a href="${u}" target="_blank" rel="noopener" data-chat="${n}" class="${n === lastChat ? 'on' : ''}">${n}</a>`).join('')}</span></div></li>
+        <li><div class="st-h"><b>${L('新开一个对话，把论文 PDF 拖进去，再粘贴提示词发送', 'Start a new chat, drop in the PDF, then paste the prompt and send')}</b></div>
+          <p class="muted">${L('带上 PDF，AI 才看得到图，框架图会讲得好很多。', 'With the PDF attached the AI can see the figures, so the framework figure is explained much better.')}
+            <a href="${P.paper.base}source.pdf" download="${esc((P.paper.meta?.arxiv || P.paper.title).replace(/[\\/:*?"<>|]+/g, ' ').slice(0, 80))}.pdf">${L('下载这篇 PDF', 'Download this PDF')}</a></p></li>
+        <li><div class="st-h"><b>${L('把 AI 的完整回复粘贴到这里', 'Paste the full AI reply here')}</b></div>
+          <p class="muted">${L('回复里有两个 ```json 代码块。中途断了就说“继续”，两段可以分两次粘贴保存。', 'The reply has two ```json blocks. If it stops, say “continue”; you can paste and save the two parts separately.')}</p>
+          <textarea id="bText" spellcheck="false" placeholder="${L('点 AI 回复下方的“复制”按钮，然后在这里 Ctrl+V', 'Click “Copy” under the AI reply, then press Ctrl+V here')}"></textarea></li>
+      </ol>
+      <div class="test-msg" id="bMsg"></div>
+    </div>
+    <div class="dlg-foot"><span class="spacer"></span><button class="btn" value="cancel">${L('关闭', 'Close')}</button>
+      <button class="btn primary" type="button" id="bSave" disabled>${L('保存解读', 'Save')}</button></div></form>`;
+  const msg = (cls, html) => { const m = $('#bMsg'); m.className = 'test-msg ' + cls; m.innerHTML = html; };
+  $$('[data-chat]', dlg).forEach(a => a.onclick = () => { lastChat = a.dataset.chat; store.set('web.chat', lastChat); $$('[data-chat]', dlg).forEach(x => x.classList.toggle('on', x === a)); });
+  $('#bCopy').onclick = async () => {
+    try {
+      const r = await api(`papers/${encodeURIComponent(P.id)}/brief/prompt`, { method: 'POST', json: {} });
+      await copyText(r.prompt);
+      msg('ok', L(`已复制提示词（${r.prompt.length.toLocaleString()} 字）。去 ${lastChat} 粘贴发送。`, `Prompt copied (${r.prompt.length.toLocaleString()} characters). Paste it into ${lastChat} and send.`));
+    } catch (e) { msg('bad', esc(e.message)); }
+  };
+  $('#bText').oninput = () => { $('#bSave').disabled = !$('#bText').value.trim(); };
+  $('#bSave').onclick = async () => {
+    try {
+      const r = await api(`papers/${encodeURIComponent(P.id)}/brief/save`, { method: 'POST', json: { text: $('#bText').value, by: lastChat } });
+      P.brief = r.brief; $('#bText').value = ''; $('#bSave').disabled = true;
+      const names = Object.fromEntries(BRIEF_SECS());
+      msg(r.missing.length ? 'ok' : 'ok', L(`已保存：${r.saved.map(k => names[k] || k).join('、')}。`, `Saved: ${r.saved.map(k => names[k] || k).join(', ')}.`) +
+        (r.missing.length ? L(` 还缺 ${r.missing.map(k => names[k] || k).join('、')}，把第二个代码块也粘贴进来。`, ` Still missing: ${r.missing.map(k => names[k] || k).join(', ')}. Paste the other code block too.`) : ''));
+      pShowTab('brief');
+    } catch (e) { msg('bad', esc(e.message)); }
+  };
+  if ($('#bRun')) $('#bRun').onclick = async () => {
+    try {
+      const job = await api(`papers/${encodeURIComponent(P.id)}/brief/run`, { method: 'POST', json: {} });
+      dlg.close(); pShowTab('brief'); watchBrief(job, engine);
+    } catch (e) { msg('bad', esc(e.message)); }
+  };
+  dlg.showModal();
+}
+
+/* ---------- 我的批注面板 ---------- */
+function renderPMarks() {
+  const el = $('#pmarks'); if (!el || !P) return;
+  const items = [];
+  Object.keys(P.marks).map(Number).sort((a, b) => a - b).forEach(n => {
+    const m = P.marks[n];
+    (m.hl || []).forEach(h => items.push({ n, kind: 'hl', y: h.rects[0][1], h }));
+    (m.pins || []).forEach(p => items.push({ n, kind: 'pin', y: p.y, p }));
+  });
+  items.sort((a, b) => a.n - b.n || a.y - b.y);
+  el.innerHTML = `
+    <label class="field"><span>${L('论文备注', 'Paper note')} <small class="muted">${L('自动保存，也会显示在论文库里', 'Saved automatically; shown in the paper list')}</small></span>
+      <textarea id="pNote" rows="4" placeholder="${L('为什么收藏这篇？读到哪了？和你的课题有什么关系？', 'Why you saved it, how far you got, how it relates to your work…')}">${esc(P.paper.note || '')}</textarea></label>
+    <div class="row pfrow"><span class="muted small">${L('文件夹', 'Folder')}</span><select id="pMove"><option value="">${L('未归档', 'Unfiled')}</option>${P.folders.map(f => `<option value="${esc(f.id)}" ${f.id === P.paper.folder ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}<option value="__new">${L('+ 新建文件夹…', '+ New folder…')}</option></select>
+      <span class="spacer"></span><button class="btn sm ghost" data-pm="info">${icon('edit')}${L('论文信息', 'Details')}</button></div>
+    <h2>${L('论文上的批注', 'Notes on the paper')} <small class="muted">${items.length}</small><span class="spacer"></span>
+      ${items.length || P.paper.note ? `<button class="btn sm ghost" data-pm="copy">${icon('copy')}${L('复制给 AI', 'Copy for AI')}</button>` : ''}</h2>
+    ${items.length ? items.map(it => it.kind === 'hl' ? `<div class="hlitem c-${it.h.color}" data-n="${it.n}" data-hid="${esc(it.h.id)}">
+        <div class="hl-top"><button class="pgtag" data-jump>${L(`第 ${it.n} 页`, `p.${it.n}`)}</button><span class="hl-text">${esc(it.h.text)}</span>
+          <button class="ibtn" data-pm="delhl" title="${L('删除', 'Delete')}">${icon('trash')}</button></div>
+        <textarea class="hl-note" rows="1" placeholder="${L('批注（可空）', 'Comment (optional)')}">${esc(it.h.note || '')}</textarea></div>`
+      : `<div class="hlitem pinitem c-${it.p.color}" data-n="${it.n}" data-pid="${esc(it.p.id)}">
+        <div class="hl-top"><button class="pgtag" data-jump>${icon('note')}${L(`第 ${it.n} 页`, `p.${it.n}`)}</button><span class="spacer"></span>
+          <button class="ibtn" data-pm="delpin" title="${L('删除', 'Delete')}">${icon('trash')}</button></div>
+        <textarea class="hl-note" rows="2" placeholder="${L('便签内容', 'Note')}">${esc(it.p.text || '')}</textarea></div>`).join('')
+    : `<p class="muted small">${L('在论文上划一段文字：可以翻译、高亮、写批注。点顶部「便签」（或按 N）可以在论文任意位置贴一张便签。', 'Select text on the paper to translate, highlight or comment on it. Use “Note” at the top (or press N) to stick a note anywhere on the paper.')}</p>`}`;
+  $$('#pmarks textarea.hl-note').forEach(t => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 2 + 'px'; });
+}
+function onPMarksClick(e) {
+  const it = e.target.closest('[data-n]');
+  const b = e.target.closest('[data-pm]');
+  if (b?.dataset.pm === 'copy') { pFlushNote(); return copyExport(`papers/${encodeURIComponent(P.id)}/export`, L('论文内容（含解读和批注）', 'the paper with its notes and marks')); }
+  if (b?.dataset.pm === 'info') return paperDialog(P.paper, async () => { const r = await api('papers/' + encodeURIComponent(P.id)); P.paper = { ...P.paper, ...r }; $('.crumb b').textContent = r.title; });
+  if (!it) return;
+  const n = +it.dataset.n;
+  if (e.target.closest('.hl-text')) return e.target.closest('.hl-text').classList.toggle('open');
+  if (b?.dataset.pm === 'delhl') { P.marks[n].hl = P.marks[n].hl.filter(h => h.id !== it.dataset.hid); pSave(n); pRenderMarks(n); return renderPMarks(); }
+  if (b?.dataset.pm === 'delpin') { P.marks[n].pins = P.marks[n].pins.filter(p => p.id !== it.dataset.pid); pSave(n); pRenderMarks(n); return renderPMarks(); }
+  if (e.target.closest('[data-jump]')) {
+    const h = it.dataset.hid ? P.marks[n].hl.find(x => x.id === it.dataset.hid) : null, p = it.dataset.pid ? P.marks[n].pins.find(x => x.id === it.dataset.pid) : null;
+    pReveal(n, h ? h.rects[0][1] : p?.y);
+    setTimeout(() => { const el = $(h ? `[data-hmark="${h.id}"]` : `[data-pin="${p?.id}"]`); if (el) { el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600); } }, 500);
+  }
+}
+let paperNoteTimer = 0;
+function onPMarksInput(e) {
+  if (e.target.id === 'pNote') {
+    P.paper.note = e.target.value; clearTimeout(paperNoteTimer);
+    const id = P.id, v = e.target.value;
+    paperNoteTimer = setTimeout(() => api('papers/' + encodeURIComponent(id), { method: 'PUT', json: { note: v } }).catch(er => toast(er.message)), 700);
+    return;
+  }
+  if (!e.target.classList.contains('hl-note')) return;
+  e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 2 + 'px';
+  const it = e.target.closest('[data-n]'), n = +it.dataset.n;
+  const obj = it.dataset.hid ? P.marks[n].hl.find(h => h.id === it.dataset.hid) : P.marks[n].pins.find(p => p.id === it.dataset.pid);
+  if (!obj) return;
+  if (it.dataset.hid) obj.note = e.target.value; else obj.text = e.target.value;
+  pSaveSoon(n);
+}
+async function onPMarksChange(e) {
+  if (e.target.classList.contains('hl-note')) { pFlushNote(); const n = +e.target.closest('[data-n]').dataset.n; return pRenderMarks(n); }
+  if (e.target.id !== 'pMove') return;
+  let to = e.target.value || null;
+  if (to === '__new') {
+    const name = prompt(L('新文件夹名称', 'New folder name'));
+    if (!name?.trim()) { e.target.value = P.paper.folder || ''; return; }
+    try { const f = await api('folders', { method: 'POST', json: { name } }); P.folders.push(f); to = f.id; } catch (er) { return toast(er.message); }
+  }
+  try { await api('papers/' + encodeURIComponent(P.id), { method: 'PUT', json: { folder: to } }); } catch (er) { return toast(er.message); }
+  P.paper.folder = to; renderPMarks();
+  toast(to ? L(`已移到「${P.folders.find(f => f.id === to)?.name}」`, `Moved to “${P.folders.find(f => f.id === to)?.name}”`) : L('已移出文件夹', 'Moved out of the folder'));
+}
+
 /* ================================================================ 查词弹窗 */
 const pop = $('#pop');
 let popToken = 0;
@@ -2396,12 +3337,13 @@ function snapToWords(sel) {
 let downAt = null;
 document.addEventListener('mousedown', e => { downAt = { x: e.clientX, y: e.clientY }; if (!pop.hidden && !e.target.closest('.pop')) hidePop(); });
 document.addEventListener('mouseup', e => {
-  if ((!R && !QZ) || R?.editing || e.target.closest('.pop, .tools, .strip, .tabs, .nav, .topnav, [data-say], [data-act], button, input, textarea, select, dialog, a')) return;
+  if ((!R && !QZ && !P) || R?.editing || e.target.closest('.pop, .tools, .strip, .tabs, .nav, .topnav, [data-say], [data-act], button, input, textarea, select, dialog, a, aside.panel')) return;
   const moved = downAt && Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) > 4;
   const wordSpan = e.target.closest('.tl span');
   const detail = e.detail;
   setTimeout(() => {
     const sel = getSelection();
+    if (P) return paperSelection(sel, wordSpan, moved, detail);
     if (wordSpan && !moved && detail === 1 && (!sel || sel.isCollapsed)) {
       const tn = wordSpan.firstChild;
       const m = tn.data.match(/[A-Za-z][A-Za-z'’-]*[A-Za-z]|[A-Za-z]/);

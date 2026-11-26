@@ -15,6 +15,9 @@
   python -m kejian prompt notes|quiz|words <课件ID…>    打印提示词（写作要求 + 课件文字 + 输出格式）
   python -m kejian save   notes|quiz|words <课件ID…> --file 回复.json
   python -m kejian vocab list | add | collect | where     单词本
+  python -m kejian paper add 论文.pdf|2504.15278|链接 [--folder 名称]   论文库：导入论文
+  python -m kejian paper list | folders | move | note | figures         论文库：管理
+  python -m kejian prompt paper <论文ID> / save paper <论文ID> --file 解读.json   AI 解读论文
   python -m kejian doctor                                  检查环境（Python、依赖、PPT 转换、Claude Code）
   python -m kejian config [键 [值]]                        查看 / 修改设置（如 language zh|en）
 """
@@ -24,7 +27,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__, ai, config, importer, jobs, library, manifest, manual, quiz, server, studio, userdata
+from . import __version__, ai, config, importer, jobs, library, manifest, manual, papers, quiz, server, studio, userdata
 
 
 def _bar(done, total, msg):
@@ -45,8 +48,8 @@ def _course_arg(ap, cid):
 
 def _kind(item_id: str) -> str:
     try:
-        library.deck_dir(item_id)
-        return "deck"
+        d = library.deck_dir(item_id)
+        return "paper" if library._read(d / "deck.json", {}).get("type") == "paper" else "deck"
     except KeyError:
         pass
     try:
@@ -106,15 +109,15 @@ def main(argv=None):
     sub.add_parser("check", help="自检课件库（坏引用、题库格式错误）")
 
     pr = sub.add_parser("prompt", help="打印给 AI 的提示词：notes 讲解 / quiz 出题 / words 提取生词")
-    pr.add_argument("kind", choices=["notes", "quiz", "words"])
-    pr.add_argument("ids", nargs="+", help="课件 ID（quiz 可以给多份课件）")
+    pr.add_argument("kind", choices=["notes", "quiz", "words", "paper"])
+    pr.add_argument("ids", nargs="+", help="课件 ID（quiz 可以给多份课件）；paper 是论文 ID")
     pr.add_argument("--pages", default="", help="页码范围，如 1-8；notes 默认 missing（还没有讲解的页）")
     pr.add_argument("--count", type=int, default=0, help="题数 / 生词数")
     pr.add_argument("--focus", default="", help="出题侧重点，如“计算题”“容易混淆的概念”")
     pr.add_argument("--out", help="写入文件（默认打印）")
 
     sv = sub.add_parser("save", help="把 AI 写好的回复（JSON）存进课件库")
-    sv.add_argument("kind", choices=["notes", "quiz", "words"])
+    sv.add_argument("kind", choices=["notes", "quiz", "words", "paper"])
     sv.add_argument("ids", nargs="+", help="课件 ID（和 prompt 时一样）")
     sv.add_argument("--file", required=True, help="回复文件；- 表示从标准输入读")
     sv.add_argument("--course", help="quiz：放进哪门课（默认跟课件同一门课）")
@@ -143,6 +146,24 @@ def main(argv=None):
     vw = vsub.add_parser("where", help="这个词出现在哪些课件页、哪些题里")
     vw.add_argument("word")
     vw.add_argument("--course")
+
+    pp = sub.add_parser("paper", help="论文库：add / list / folders / move / note / figures")
+    psub = pp.add_subparsers(dest="pcmd")
+    pa = psub.add_parser("add", help="导入论文：PDF 文件、arXiv 编号或论文 PDF 链接")
+    pa.add_argument("source")
+    pa.add_argument("--folder", help="放进哪个文件夹（名称或 ID，不存在会新建）")
+    pl = psub.add_parser("list", help="列出论文")
+    pl.add_argument("--json", action="store_true")
+    pf = psub.add_parser("folders", help="列出文件夹；加名称则新建")
+    pf.add_argument("name", nargs="?")
+    pm = psub.add_parser("move", help="把论文放进文件夹（none 表示移出）")
+    pm.add_argument("paper")
+    pm.add_argument("folder")
+    pn = psub.add_parser("note", help="查看 / 修改论文备注")
+    pn.add_argument("paper")
+    pn.add_argument("text", nargs="?")
+    pg = psub.add_parser("figures", help="重新识别论文里的图和表")
+    pg.add_argument("paper")
 
     sub.add_parser("doctor", help="检查运行环境")
     cf = sub.add_parser("config", help="查看 / 修改设置（API Key 不在这里显示）")
@@ -194,8 +215,8 @@ def main(argv=None):
         else:
             kind = _kind(a.item)
             if not kind:
-                ap.error(f"找不到课件或题库：{a.item}")
-            text = manifest.export_deck(a.item) if kind == "deck" else quiz.export_markdown(a.item)
+                ap.error(f"找不到课件、论文或题库：{a.item}")
+            text = {"deck": manifest.export_deck, "paper": papers.export_paper, "quiz": quiz.export_markdown}[kind](a.item)
         if a.out:
             Path(a.out).write_text(text, encoding="utf-8")
             print(f"已写入 {a.out}")
@@ -253,6 +274,8 @@ def main(argv=None):
         return _save(ap, a)
     elif cmd == "vocab":
         return _vocab(ap, a)
+    elif cmd == "paper":
+        return _paper(ap, a)
     elif cmd == "doctor":
         return _doctor()
     elif cmd == "config":
@@ -293,7 +316,90 @@ def _pages(ns):
     return ", ".join(map(str, ns)) or "-"
 
 
+def _paper_id(ap, pid):
+    if _kind(pid) != "paper":
+        ap.error(f"找不到论文：{pid}（用 python -m kejian paper list 查看论文 ID）")
+    return pid
+
+
+def _folder_arg(name):
+    """文件夹名称或 ID；不存在就新建。"""
+    if not name or name.lower() == "none":
+        return None
+    for f in papers.list_folders():
+        if name in (f["id"], f["name"]):
+            return f["id"]
+    return papers.add_folder(name)["id"]
+
+
+def _paper(ap, a):
+    if a.pcmd == "add":
+        folder = _folder_arg(a.folder)
+        src = Path(a.source)
+        try:
+            if src.is_file():
+                pid = papers.import_paper(src, src.name, folder=folder, progress=_bar)
+            else:
+                aid = papers.arxiv_id(a.source)
+                old = papers.find_by_arxiv(aid) if aid else None
+                if old:
+                    print(f"这篇论文已经在论文库里：{old}")
+                    return 0
+                tmp, name, meta = papers.download(a.source, _bar)
+                try:
+                    pid = papers.import_paper(tmp, name, folder=folder, meta=meta, progress=_bar)
+                finally:
+                    tmp.unlink(missing_ok=True)
+        except (importer.ImportError_, ValueError) as e:
+            print(f"\n导入失败：{e}")
+            return 1
+        p = papers.get_paper(pid)
+        print(f"\n已导入论文：{pid}\n  {p['title']}\n  {len(p['figs_list'])} 个图表，文件夹：{folder or '未归档'}")
+    elif a.pcmd == "folders":
+        if a.name:
+            f = papers.add_folder(a.name)
+            print(f"文件夹：{f['id']}  {f['name']}")
+        else:
+            for f in papers.list_folders():
+                print(f"{f['id']:<24} {f['name']}")
+    elif a.pcmd == "move":
+        papers.update_paper(_paper_id(ap, a.paper), {"folder": _folder_arg(a.folder)})
+        print("已移动")
+    elif a.pcmd == "note":
+        pid = _paper_id(ap, a.paper)
+        if a.text is None:
+            print(papers.get_paper(pid).get("note") or "（没有备注）")
+        else:
+            papers.update_paper(pid, {"note": a.text})
+            print("备注已保存")
+    elif a.pcmd == "figures":
+        figs = papers.extract_figures(_paper_id(ap, a.paper))
+        for f in figs:
+            print(f"  {f['kind']:<6} {f['id']:<3} 第 {f['page']} 页  {f['img']}  {f['caption'][:60]}")
+    else:
+        ps = papers.list_papers()
+        if getattr(a, "json", False):
+            print(json.dumps({"folders": papers.list_folders(), "papers": ps}, ensure_ascii=False, indent=2))
+            return 0
+        names = {f["id"]: f["name"] for f in papers.list_folders()}
+        for p in ps:
+            brief = "已解读" if p["brief"] else "未解读"
+            print(f"{p['id']:<36} [{names.get(p['folder'], '未归档')}] {brief}  {p['title'][:70]}")
+        if not ps:
+            print("论文库是空的。导入：python -m kejian paper add 2504.15278")
+    return 0
+
+
 def _prompt(ap, a):
+    if a.kind == "paper":
+        pid = _paper_id(ap, a.ids[0])
+        d = papers.paper_dir(pid)
+        text = papers.brief_prompt(pid)
+        text += (f"\n\n(The PDF is {(d / 'source.pdf').as_posix()}; cropped figures and tables are in {(d / 'figs').as_posix()}/ "
+                 f"(figure-N.png, table-N.png); page images are {d.as_posix()}/pages/NNN.jpg. If you can read images, look at the "
+                 f"framework figure and the method figures before writing.)")
+        _emit(text, a.out)
+        return 0
     ids = _decks(ap, a.ids)
     lang = config.load_settings().get("language", "zh")
     if a.kind == "notes":
@@ -314,8 +420,16 @@ def _prompt(ap, a):
 
 
 def _save(ap, a):
-    ids = _decks(ap, a.ids)
     text = sys.stdin.read() if a.file == "-" else Path(a.file).read_text(encoding="utf-8-sig")
+    if a.kind == "paper":
+        try:
+            r = papers.save_brief(text, _paper_id(ap, a.ids[0]), by="AI assistant")
+        except ValueError as e:
+            print(f"保存失败：{e}")
+            return 1
+        print("已保存论文解读：" + ", ".join(r["saved"]) + (f"\n还缺：{', '.join(r['missing'])}" if r["missing"] else ""))
+        return 0
+    ids = _decks(ap, a.ids)
     try:
         if a.kind == "notes":
             r = manual.save_reply(ids[0], text, None, overwrite=not a.keep)

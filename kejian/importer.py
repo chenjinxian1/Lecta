@@ -193,7 +193,8 @@ def _words(page) -> list:
 
 
 def import_file(src: Path, title: str | None = None, progress=lambda done, total, msg: None,
-                original_name: str | None = None) -> str:
+                original_name: str | None = None, page_width: int = PAGE_WIDTH_PX, extra: dict | None = None) -> str:
+    """extra：写进 deck.json 的额外字段（论文用 {"type": "paper", ...}）。"""
     fitz = _fitz()
     src = Path(src)
     name = original_name or src.name
@@ -226,7 +227,7 @@ def import_file(src: Path, title: str | None = None, progress=lambda done, total
         for i, page in enumerate(doc):
             progress(i, total, f"正在处理第 {i + 1} / {total} 页")
             w, h = page.rect.width, page.rect.height
-            z = PAGE_WIDTH_PX / w
+            z = page_width / w
             page.get_pixmap(matrix=fitz.Matrix(z, z), alpha=False).save(d / "pages" / f"{i + 1:03d}.jpg", jpg_quality=86)
             zt = THUMB_WIDTH_PX / w
             page.get_pixmap(matrix=fitz.Matrix(zt, zt), alpha=False).save(d / "thumbs" / f"{i + 1:03d}.jpg", jpg_quality=80)
@@ -240,7 +241,7 @@ def import_file(src: Path, title: str | None = None, progress=lambda done, total
         doc.close()
         library.write_deck(d, {
             "id": deck_id, "title": (title or stem).strip(), "source": name,
-            "kind": ext.lstrip("."), "created": time.time(), "pages": pages,
+            "kind": ext.lstrip("."), "created": time.time(), "pages": pages, **(extra or {}),
         }, words)
         progress(total, total, "导入完成")
         return deck_id
