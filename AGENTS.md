@@ -112,6 +112,7 @@ python -m kejian save paper <paper-id> --file tmp-paper-brief.md
 | "Explain this lecture" | `python -m kejian export <deck-id>`: slide text, notes and the user's own stars, notes and highlights |
 | "Quiz me on what I got wrong" | Read the wrong questions, then `prompt quiz` with `--focus` on those concepts |
 | "Make a revision sheet" | Use the starred pages and highlights from `export <deck-id>`; write Markdown for the user, not into `library/` |
+| "Send this quiz to my friend" | `python -m kejian export <quiz-id> --share --out <name>.lecta-quiz.json` (questions, answers, explanations, slide notes); the friend runs `python -m kejian quiz <file>` or uses Import quiz in the app |
 
 `python -m kejian manifest` prints the whole library as JSON, including `"language"`. Write in that language: see the table in AI_GUIDE.md §1.
 

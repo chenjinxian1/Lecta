@@ -776,3 +776,14 @@ dl.parts dd { margin: 4px 0 0 13px; }
 .pinitem { border-left-style: dashed; }
 #pmarks .hlitem .hl-text { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
 #pmarks .hlitem .hl-text.open { -webkit-line-clamp: unset; }
+
+/* 题目对应课件页的讲解 */
+.slidenote { margin: 14px 0 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); padding: 0 14px; }
+.slidenote > summary { cursor: pointer; padding: 10px 0; display: flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 14px; list-style: none; }
+.slidenote > summary::-webkit-details-marker { display: none; }
+.slidenote > summary .icon { width: 15px; height: 15px; color: var(--accent); }
+.slidenote[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.slidenote .sn-s { font-weight: 600; margin: 6px 0; }
+.slidenote ul { margin: 6px 0 10px; padding-left: 20px; line-height: 1.7; }
+.slidenote .sn-tip { display: flex; gap: 6px; align-items: flex-start; color: var(--muted); font-size: 13.5px; margin: 0 0 12px; }
+.slidenote .sn-tip .icon { width: 14px; height: 14px; flex: none; margin-top: 3px; }

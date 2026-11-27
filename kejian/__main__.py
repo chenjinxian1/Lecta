@@ -106,6 +106,8 @@ def main(argv=None):
     ex = sub.add_parser("export", help="导出成 Markdown：课件 ID / 题库 ID / vocab")
     ex.add_argument("item")
     ex.add_argument("--out", help="写入文件（默认打印）")
+    ex.add_argument("--share", action="store_true",
+                    help="题库导出成可以发给同学的 .lecta-quiz.json（题目、答案、解析、对应课件页的讲解），对方用 `quiz 文件` 导入")
     sub.add_parser("check", help="自检课件库（坏引用、题库格式错误）")
 
     pr = sub.add_parser("prompt", help="打印给 AI 的提示词：notes 讲解 / quiz 出题 / words 提取生词")
@@ -216,7 +218,10 @@ def main(argv=None):
             kind = _kind(a.item)
             if not kind:
                 ap.error(f"找不到课件、论文或题库：{a.item}")
-            text = {"deck": manifest.export_deck, "paper": papers.export_paper, "quiz": quiz.export_markdown}[kind](a.item)
+            if a.share and kind != "quiz":
+                ap.error("--share 只用于题库")
+            text = (json.dumps(quiz.export_package(a.item), ensure_ascii=False, indent=1) if a.share else
+                    {"deck": manifest.export_deck, "paper": papers.export_paper, "quiz": quiz.export_markdown}[kind](a.item))
         if a.out:
             Path(a.out).write_text(text, encoding="utf-8")
             print(f"已写入 {a.out}")
@@ -256,6 +261,17 @@ def main(argv=None):
         if not p.is_file():
             ap.error(f"找不到文件：{p}")
         try:
+            obj = json.loads(p.read_text(encoding="utf-8-sig")) if p.suffix.lower() == ".json" else None
+            if quiz.is_package(obj) and not a.check:
+                r = quiz.import_package(obj, title=a.title, course=course)
+                print(f"已导入同学分享的题库：{r['id']}（{r['count']} 题）" + (f"，课程 {course}" if course else ""))
+                for x in r["linked"]:
+                    print(f"  Ch.{x['chapter']} 对上了课件 {x['deck']}（{x['name']}）")
+                for x in r["unlinked"]:
+                    print(f"  Ch.{x['chapter']} 没找到课件《{x['name']}》：先导入这份课件，题目里的“看课件”才能用")
+                if r["notes_filled"]:
+                    print(f"  给你的课件补上了 {r['notes_filled']} 页讲解")
+                return 0
             if p.suffix.lower() == ".json":
                 if a.check:
                     _, errs = quiz.validate(json.loads(p.read_text(encoding="utf-8")))

@@ -84,11 +84,11 @@ async function api(path, opts = {}) {
 let toastTimer;
 function toast(msg, action) {
   const t = $('#toast');
-  t.innerHTML = esc(msg) + (action ? ` <a>${esc(action.label)}</a>` : '');
-  if (action) $('a', t).onclick = () => { t.classList.remove('show'); action.fn(); };
+  t.innerHTML = esc(msg) + (action?.label ? ` <a>${esc(action.label)}</a>` : '');
+  if (action?.label) $('a', t).onclick = () => { t.classList.remove('show'); action.fn(); };
   t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), action ? 5000 : 1800);
+  toastTimer = setTimeout(() => t.classList.remove('show'), action?.ms || (action?.label ? 5000 : 1800));
 }
 function pollJob(id, onUpdate, interval = 800) {
   let stop = false;
@@ -324,6 +324,30 @@ function courseOptions(courses, cur) {
   return `<option value="">${L('未分类', 'Unsorted')}</option>` + courses.map(c => `<option value="${esc(c.id)}" ${c.id === cur ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
 }
 async function getCourses() { return (await api('courses')).courses; }
+// 题库导出成文件发给同学：题目、答案、解析、对应课件页的讲解（不含作答记录）
+async function shareQuiz(id, title) {
+  try {
+    const data = await api(`quizzes/${encodeURIComponent(id)}/package`);
+    const name = (title || data.title || 'quiz').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) + '.lecta-quiz.json';
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: name });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    const notes = Object.values(data.chapters || {}).reduce((s, c) => s + Object.keys(c.notes || {}).length, 0);
+    toast(L(`已导出 ${data.questions.length} 道题${notes ? `和 ${notes} 页讲解` : ''}。把文件发给同学，在“题库 → 导入题库”里选它就行`,
+      `Exported ${data.questions.length} questions${notes ? ` and ${notes} slide notes` : ''}. Send the file to your friend; they open Quizzes → Import quiz and pick it.`), { ms: 7000 });
+  } catch (e) { toast(e.message); }
+}
+// 导入结果：哪些章节对上了本机课件
+function importReport(r) {
+  const parts = [L(`已导入 ${r.count} 道题`, `${r.count} questions imported`)];
+  if (r.linked?.length) parts.push(L(`${r.linked.length} 章对上了你的课件`, `${r.linked.length} chapter(s) linked to your slides`));
+  if (r.notes_filled) parts.push(L(`补上 ${r.notes_filled} 页讲解`, `${r.notes_filled} slide notes added`));
+  if (r.unlinked?.length) parts.push(L(`没找到课件：${r.unlinked.map(x => '《' + x.name + '》').join('、')}（导入同名课件后会自动关联）`,
+    `Slides not found: ${r.unlinked.map(x => '“' + x.name + '”').join(', ')} (import them and the quiz links up automatically)`));
+  return parts.join(L('；', '; '));
+}
+
 async function copyExport(path, label) {
   try {
     const r = await fetch('/api/' + path);
@@ -378,6 +402,7 @@ async function quizMenu(z, after) {
       <label class="field"><span>${L('名称', 'Name')}</span><input type="text" id="zTitle" value="${esc(z.title)}"></label>
       <label class="field"><span>${L('所属课程', 'Course')}</span><select id="zCourse">${courseOptions(courses, z.course)}</select></label>
       <div class="note-box">${L(`${z.count} 题 · 答对 ${z.stats.right} · 答错 ${z.stats.wrong}`, `${z.count} questions · ${z.stats.right} right · ${z.stats.wrong} wrong`)}<br>${L('题库 ID', 'Quiz ID')}: <code>${esc(z.id)}</code></div>
+      <button class="btn" type="button" id="zShare">${icon('download')}${L('导出题库文件（发给同学）', 'Export quiz file (to share)')}</button>
       <button class="btn" type="button" id="zCopy">${icon('copy')}${L('复制题目和我的作答给 AI', 'Copy questions and my answers for AI')}</button>
       <button class="btn" type="button" id="zTerms">${icon('plus')}${L('把题目里的关键术语收进单词本', 'Save the key terms into my word book')}</button>
     </div>
@@ -385,6 +410,7 @@ async function quizMenu(z, after) {
       <span class="spacer"></span><button class="btn" value="cancel">${L('取消', 'Cancel')}</button><button class="btn primary" id="zSave">${L('保存', 'Save')}</button></div></form>`;
   const done = () => { dlg.close(); (after || renderHome)(); };
   $('#zCopy').onclick = () => copyExport(`quizzes/${encodeURIComponent(z.id)}/export`, L('题库和作答记录', 'the quiz and your answers'));
+  $('#zShare').onclick = () => shareQuiz(z.id, z.title);
   $('#zTerms').onclick = () => collectTerms({ quiz: z.id });
   $('#zSave').onclick = async e => {
     e.preventDefault();
@@ -1335,11 +1361,12 @@ async function showQuizzes() {
   $('#qfile').onchange = async e => {
     const f = e.target.files[0]; e.target.value = ''; if (!f) return;
     const courses = await getCourses();
-    const course = await pickCourse(courses, L(`把《${f.name}》放进哪门课？`, `Which course should “${f.name}” go in?`));
+    // 同学导出的题库文件会自动放进对上的课件所在的课程，不用再选
+    const course = /\.lecta-quiz\.json$/i.test(f.name) ? '' : await pickCourse(courses, L(`把《${f.name}》放进哪门课？`, `Which course should “${f.name}” go in?`));
     if (course === undefined) return;
     try {
       const r = await api('quizzes/import', { method: 'POST', body: f, headers: { 'X-Filename': encodeURIComponent(f.name), 'X-Course': encodeURIComponent(course || '') } });
-      toast(L(`已导入 ${r.count} 道题`, `${r.count} questions imported`), { label: L('开始做题', 'Start'), fn: () => location.hash = `#/quiz/${encodeURIComponent(r.id)}` });
+      toast(importReport(r), { label: L('开始做题', 'Start'), fn: () => location.hash = `#/quiz/${encodeURIComponent(r.id)}`, ms: r.unlinked?.length ? 9000 : undefined });
       renderQuizzes();
     } catch (err) { toast(err.message); }
   };
@@ -1355,7 +1382,7 @@ async function renderQuizzes() {
   if (m.unassigned.quizzes.length) groups.push({ id: '', name: L('未分类', 'Unsorted'), color: '#847e72', quizzes: m.unassigned.quizzes });
   if (!groups.length) {
     el.innerHTML = `<div class="empty-big">${icon('check')}<h3>${L('还没有题库', 'No quizzes yet')}</h3>
-      <p>${L('点右上角“导入题库”：支持选择题 PPT（演讲者备注写 <code>Answer: B</code>）或 AI 按格式写好的 JSON。', 'Click “Import quiz”: a multiple-choice PPT (speaker notes say <code>Answer: B</code>) or a JSON file written by AI in the quiz format.')}</p></div>`;
+      <p>${L('点右上角“导入题库”：支持同学用 Lecta 导出的题库文件（.lecta-quiz.json）、选择题 PPT（演讲者备注写 <code>Answer: B</code>）或 AI 按格式写好的 JSON。', 'Click “Import quiz”: a quiz file a friend exported from Lecta (.lecta-quiz.json), a multiple-choice PPT (speaker notes say <code>Answer: B</code>) or a JSON file written by AI in the quiz format.')}</p></div>`;
     return;
   }
   el.innerHTML = groups.map(g => `<section class="course" style="--cc:${esc(g.color)}">
@@ -1500,6 +1527,7 @@ async function openQuiz(id, n, f) {
       <div class="progress"><i id="qbar"></i></div>
       <div class="tools">
         ${LANG === 'zh' ? `<button class="chip-btn" id="zhBtn" title="题干和选项显示中文对照">中<span class="lbl">中文对照</span></button>` : ''}
+        <button class="chip-btn" id="shareBtn" title="${L('导出题库文件发给同学（题目、答案、解析和对应课件页的讲解）', 'Export a quiz file to share (questions, answers, explanations and slide notes)')}">${icon('download')}<span class="lbl">${L('导出', 'Export')}</span></button>
         ${langBtnHTML()}
         <button class="chip-btn" id="themeBtn" title="${L('切换深浅色', 'Light / dark')}">${icon('moon')}</button>
       </div>
@@ -1518,6 +1546,7 @@ async function openQuiz(id, n, f) {
     </main>`;
   $('#themeBtn').onclick = toggleTheme;
   $('#langBtn').onclick = () => switchLang();
+  $('#shareBtn').onclick = () => shareQuiz(id, quiz.title);
   const zhBtn = $('#zhBtn');
   if (zhBtn) {
     zhBtn.setAttribute('aria-pressed', QZ.zh);
@@ -1683,6 +1712,7 @@ function renderQuestion() {
         : expEn ? `<h2>Explanation</h2><p class="exp-en">${esc(expEn)}</p>`
         : q.exp_zh ? `<h2>Explanation <small class="muted">(only in Chinese so far)</small></h2><p class="exp-zh">${esc(q.exp_zh)}</p>` : ''}
       ${terms ? `<h2>${L('关键词', 'Key terms')} <small class="muted">${L('点 ☆ 加入单词本', 'click ☆ to save')}</small></h2><table class="terms">${terms}</table>` : ''}
+      ${slideNoteHTML(quiz.slide_notes?.[q.chapter]?.[q.page], q.page)}
       ${deckLink ? `<div class="from">${icon('bulb')}<div><b>${L('题目出处', 'Source')} · </b>${L(`${esc(chTitle(ch))}，第 ${q.page} 页。去课件里看看这道题考的原文。`, `${esc(chTitle(ch))}, page ${q.page}. See the slide this question is based on.`)}<div class="row">${deckLink}</div></div></div>` : ''}
     </section>` : ''}
     <div class="qnav">
@@ -1693,6 +1723,13 @@ function renderQuestion() {
     </div>
   </article>`;
   fillTermCells(el);
+}
+
+function slideNoteHTML(n, page) {
+  if (!n) return '';
+  const pts = (n.p || []).map(x => `<li>${esc(forLang(x) || x)}</li>`).join('');
+  return `<details class="slidenote"><summary>${icon('book')}${L(`课件第 ${page} 页的讲解`, `Slide ${page} notes`)}${n.t ? ` · <b>${esc(n.t)}</b>` : ''}</summary>
+    ${n.s ? `<p class="sn-s">${esc(n.s)}</p>` : ''}${pts ? `<ul>${pts}</ul>` : ''}${n.tip ? `<p class="sn-tip">${icon('bulb')}${esc(n.tip)}</p>` : ''}</details>`;
 }
 
 function saveAnswer(n, a) {

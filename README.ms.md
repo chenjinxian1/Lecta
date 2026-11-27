@@ -205,6 +205,8 @@ python -m kejian quiz kuiz-saya.json --course econ101
 
 Jawapan disimpan dalam pustaka, jadi penapis **Wrong** dan **Ever wrong** masih berguna minggu depan.
 
+**Kongsi kuiz dengan rakan.** Klik **Export** di bahagian atas kuiz (atau *Export quiz file* dalam menu ⋯). Fail `.lecta-quiz.json` mengandungi soalan, jawapan, penerangan, istilah utama dan nota slaid bagi setiap soalan, tetapi bukan jawapan anda. Rakan anda membuka **Quizzes → Import quiz** dan memilih fail itu. Lecta memadankan setiap bab dengan salinan kuliah yang sama di komputer mereka (mengikut tajuk atau nama fail) dan menambah nota slaid yang belum ada tanpa menimpa nota mereka sendiri. Baris arahan: `python -m kejian export <id-kuiz> --share --out kuiz.lecta-quiz.json`, kemudian `python -m kejian quiz kuiz.lecta-quiz.json`.
+
 ## Membaca kertas penyelidikan
 
 Tab **Papers** ialah perpustakaan kertas penyelidikan, berasingan daripada kursus anda.

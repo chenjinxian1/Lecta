@@ -188,6 +188,19 @@ python -m kejian quiz 题库.json --course econ101             # 导入
 另一种方式：选择题 PPT（每页一题，题号写 `Q12`，选项 A–D，演讲者备注写 `Answer: B. …`）可以直接
 `python -m kejian quiz 练习.pptx --course econ101`，之后再补中文解析（直接编辑 `library/_quizzes/<题库ID>.json`）。
 
+### 分享给同学：`.lecta-quiz.json`
+
+```bash
+python -m kejian export <题库ID> --share --out 题库.lecta-quiz.json   # 导出
+python -m kejian quiz 题库.lecta-quiz.json                             # 同学导入
+```
+
+文件格式：`{"format": "lecta-quiz", "version": 1, "title", "chapters": {"章": {"title", "deck", "deck_title", "deck_source", "deck_pages", "notes": {"页码": 讲解}}}, "questions": [...]}`。
+`questions` 和上面的题库格式一样；`notes` 只放题目用到的、有讲解的页（讲解格式同 `notes.json`）。不含作答记录。
+导入时每章按 课件 ID（且标题对得上）→ 同名课件 → 同一个源文件名 去对本机课件；对不上的章节照样能做题，
+本机之后导入了同名课件会自动关联。本机课件某页没有讲解时用文件里的补上，已有的不覆盖。
+没指定课程时放进对上的课件所在的课程。网页接口：`GET /api/quizzes/<id>/package`；导入还是 `POST /api/quizzes/import`。
+
 ## 6. 论文库
 
 论文和课件分开放：网页顶部的「论文」页，按文件夹收藏。每篇论文可以写备注、在论文上高亮 + 批注、贴便签，右边有 AI 解读（研究问题、解决思路、整体框架、摘要和引言全文翻译、方法逐节图文详解、框架图精读、实验结论等）。

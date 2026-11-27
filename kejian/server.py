@@ -283,6 +283,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not rest and method == "DELETE":
                 quiz.delete_quiz(qid)
                 return self._json({"ok": True})
+            if rest == ["package"] and method == "GET":
+                return self._json(quiz.export_package(qid))
             if rest == ["answer"] and method == "POST":
                 b = self._body_json()
                 q = quiz.get_quiz(qid)
@@ -526,6 +528,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 f.write(data)
             title = Path(name).stem
             try:
+                if ext == ".json":
+                    obj = json.loads(data.decode("utf-8-sig"))
+                    if quiz.is_package(obj):        # 同学用 Lecta 导出的题库文件
+                        return self._json(quiz.import_package(obj, course=course))
                 if ext == ".json" and json.loads(data.decode("utf-8-sig")).get("title"):
                     title = None
                 qid = quiz.import_json(Path(tmp), title=title, course=course) if ext == ".json" else quiz.import_pptx(Path(tmp), title=title, course=course)
